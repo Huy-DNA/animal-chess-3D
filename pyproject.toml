@@ -1,0 +1,28 @@
+[project]
+name = "animal-chess"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "<3.12,>=3.11"
+dependencies = [
+  "core",
+  "server",
+  "client",
+]
+
+[tool.uv.sources]
+client = { workspace = true }
+server = { workspace = true }
+core = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+  "packages/*",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+include = [
+  "packages/*"
+]

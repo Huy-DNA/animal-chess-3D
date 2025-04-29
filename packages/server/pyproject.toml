@@ -1,0 +1,31 @@
+[project]
+name = "server"
+version = "0.1.0"
+description = "Animal Chess server"
+readme = "README.md"
+requires-python = "<3.12,>=3.11"
+dependencies = [
+  "dotenv>=0.9.9",
+  "podsixnet>=0.11.0",
+  "core",
+]
+
+[tool.uv.sources]
+core = { workspace = true }
+
+[tool.pyright]
+venvPath = ".."
+venv = "../.venv"
+include = [
+  "server/*"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["server"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
