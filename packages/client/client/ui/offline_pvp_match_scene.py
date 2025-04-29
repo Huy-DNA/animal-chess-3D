@@ -1,101 +1,75 @@
-from typing import Dict, List, Optional
-from core.map import Position
-from core.piece import Color, PieceType
-import pygame
 import os
 import functools
-from pygame.event import Event
-from pygame.font import Font
-from pygame.surface import Surface
-from ui.button import Button
+
+from direct.showbase.ShowBase import ShowBase
+from direct.gui.DirectButton import DirectButton
+from direct.gui.OnscreenText import OnscreenText
+from direct.task import Task
+from panda3d.core import TextNode, TransparencyAttrib, Point3, CardMaker
+from panda3d.core import PNMImage, Texture, NodePath
+from panda3d.core import (
+    CollisionTraverser,
+    CollisionHandlerQueue,
+    CollisionRay,
+    CollisionNode,
+)
+
+from core.map import Position
+from core.piece import Color, PieceType
 from ui.game_scene import GameScene
 from ui.constants import (
-    SCREEN_WIDTH,
-    SCREEN_HEIGHT,
-    TILE_SIZE,
     BOARD_COLS,
     BOARD_ROWS,
-    BOARD_X,
-    BOARD_Y,
     ASSETS_PATH,
 )
 from core.game import Game, Piece
 
 
 class OfflinePvPMatchScene(GameScene):
-    animal_images: Dict[PieceType, Surface]
-    background_image: Surface
-    inner_background_image: Surface
-    trap_image: Surface
-    cave_image: Surface
-    font: Font
-
-    game: Game
-    screen: Surface
-    selected_piece: Optional[Piece]
-    offset_x: int
-    offset_y: int
-    game_over: bool
-    status_message: str
-
-    def __init__(self, screen: Surface):
-        pygame.display.set_caption("Animal chess")
+    def __init__(self, base: ShowBase):
+        super().__init__(base)
         self.game_over = False
         self.game = Game()
 
-        self.screen = screen
         self.selected_piece = None
+        self.piece_nodes = {}
+        self.tile_nodes = {}
 
-        self.animal_images = OfflinePvPMatchScene.load_animal_images()
-        self.background_image = pygame.transform.scale(
-            pygame.image.load(
-                os.path.join(ASSETS_PATH, "board-image.png")
-            ).convert_alpha(),
-            (SCREEN_WIDTH, SCREEN_HEIGHT),
-        )
+        self.status_message = ""
 
-        self.inner_background_image: Surface = pygame.transform.scale(
-            pygame.image.load(os.path.join(ASSETS_PATH, "forest-bg.png")).convert(),
-            (SCREEN_WIDTH, SCREEN_HEIGHT),
-        )
+        self.textures = {}
+        self.dragging = False
+        self.drag_piece_node = None
 
-        self.trap_image = pygame.transform.scale(
-            pygame.image.load(os.path.join(ASSETS_PATH, "trap-image.png")),
-            (TILE_SIZE, TILE_SIZE),
-        )
+        # Initialize collision detection
+        self.base.cTrav = CollisionTraverser()
+        self.base.pq = CollisionHandlerQueue()
+        self.base.pickerRay = CollisionRay()
+        self.picker_node = CollisionNode("mouseRay")
+        self.picker_node.addSolid(self.base.pickerRay)
+        self.picker_np = self.base.camera.attachNewNode(self.picker_node)
+        self.base.cTrav.addCollider(self.picker_np, self.base.pq)
 
-        self.cave_image = pygame.transform.scale(
-            pygame.image.load(os.path.join(ASSETS_PATH, "cave-image.png")),
-            (TILE_SIZE, TILE_SIZE),
-        )
+    def setup(self):
+        self.base.setBackgroundColor(0.5, 0.8, 1.0)
 
-        self.small_font = pygame.font.SysFont(None, 24)
-        self.font = pygame.font.SysFont(None, 36)
+        self.base.disableMouse()
+        self.base.camera.setPos(BOARD_COLS / 2, -10, BOARD_ROWS / 2 + 2)
+        self.base.camera.lookAt(BOARD_COLS / 2, 0, BOARD_ROWS / 2)
 
-        self.quit_button = Button(
-            SCREEN_WIDTH - 120, 20, 100, 40, "QUIT", self.small_font
-        )
-        self.quit_button.normal_color = (200, 50, 50)
-        self.quit_button.hover_color = (255, 70, 70)
+        self.board_root = self.base.render.attachNewNode("board_root")
 
-        self.menu_button = Button(
-            SCREEN_WIDTH - 230, 20, 100, 40, "MENU", self.small_font
-        )
-        self.menu_button.normal_color = (70, 70, 200)
-        self.menu_button.hover_color = (100, 100, 255)
-        self.status_message = ''
+        self.load_textures()
 
-    def get_board_mouse_pos(self, mouse_x: float, mouse_y: float) -> Optional[Position]:
-        col = (mouse_x - BOARD_X) // TILE_SIZE
-        row = (mouse_y - BOARD_Y) // TILE_SIZE
-        if 0 <= col < BOARD_COLS and 0 <= row < BOARD_ROWS:
-            return Position(col, row)
-        return None
+        self.create_board()
 
-    @staticmethod
-    @functools.cache
-    def load_animal_images():
-        images = {}
+        self.create_ui()
+
+        self.setup_mouse_picking()
+
+        self.base.taskMgr.add(self.step, "GameStepTask")
+
+    def load_textures(self):
         name_to_type = {
             "elephant": PieceType.ELEPHANT,
             "lion": PieceType.LION,
@@ -106,6 +80,7 @@ class OfflinePvPMatchScene(GameScene):
             "cat": PieceType.CAT,
             "mouse": PieceType.MOUSE,
         }
+
         for name in os.listdir(ASSETS_PATH):
             if name.endswith(".png") and name not in [
                 "trap-image.png",
@@ -115,164 +90,310 @@ class OfflinePvPMatchScene(GameScene):
                 "cave-image.png",
                 "river-image.png",
             ]:
-                img = pygame.image.load(os.path.join(ASSETS_PATH, name)).convert_alpha()
-                img = pygame.transform.smoothscale(img, (TILE_SIZE, TILE_SIZE))
+                texture = self.base.loader.loadTexture(os.path.join(ASSETS_PATH, name))
                 key = name_to_type[name.replace("-image.png", "")]
-                images[key] = img
-        return images
+                self.textures[key] = texture
 
-    @functools.cache
-    def rivers(self) -> List[Position]:
+        self.textures["trap"] = self.base.loader.loadTexture(
+            os.path.join(ASSETS_PATH, "trap-image.png")
+        )
+        self.textures["cave"] = self.base.loader.loadTexture(
+            os.path.join(ASSETS_PATH, "cave-image.png")
+        )
+        self.textures["river"] = (
+            self.base.loader.loadTexture(os.path.join(ASSETS_PATH, "river-image.png"))
+            if os.path.exists(os.path.join(ASSETS_PATH, "river-image.png"))
+            else None
+        )
+        self.textures["normal_tile"] = self.create_color_texture(0.96, 0.87, 0.7)
+        self.textures["river_tile"] = self.create_color_texture(0, 0.59, 1.0)
+
+    def create_color_texture(self, r, g, b):
+        image = PNMImage(2, 2)
+        image.fill(r, g, b)
+        texture = Texture()
+        texture.load(image)
+        return texture
+
+    def create_board(self):
         state = self.game.get_state()
-        map = state.get_map()
-
-        river_positions = []
-        for y in range(map.height()):
-            for x in range(map.width()):
-                location = map[y, x]
-                if location and location.is_river:
-                    river_positions.append(Position(x, y))
-
-        return river_positions
-
-    @functools.cache
-    def caves(self) -> List[Position]:
-        state = self.game.get_state()
-        map = state.get_map()
-
-        cave_positions = []
-        for y in range(map.height()):
-            for x in range(map.width()):
-                location = map[y, x]
-                if location and location.cave_color is not None:
-                    cave_positions.append(Position(x, y))
-
-        return cave_positions
-
-    @functools.cache
-    def traps(self) -> List[Position]:
-        state = self.game.get_state()
-        map = state.get_map()
-
-        trap_positions = []
-        for y in range(map.height()):
-            for x in range(map.width()):
-                location = map[y, x]
-                if location and location.trap_color is not None:
-                    trap_positions.append(Position(x, y))
-
-        return trap_positions
-
-    def draw_board(self):
-        self.screen.blit(self.inner_background_image, (0, 0))
-        self.screen.blit(self.background_image, (0, 0))
+        game_map = state.get_map()
 
         for row in range(BOARD_ROWS):
             for col in range(BOARD_COLS):
-                rect = pygame.Rect(
-                    BOARD_X + col * TILE_SIZE,
-                    BOARD_Y + row * TILE_SIZE,
-                    TILE_SIZE,
-                    TILE_SIZE,
-                )
                 tile_pos = Position(col, row)
 
-                if tile_pos in self.rivers():
-                    pygame.draw.rect(self.screen, (0, 150, 255), rect)
-                elif tile_pos in self.traps():
-                    pygame.draw.rect(self.screen, (255, 230, 200), rect)
+                cm = CardMaker(f"tile_{col}_{row}")
+                cm.setFrame(0, 1, 0, 1)
+                tile_node = self.board_root.attachNewNode(cm.generate())
+                tile_node.setPos(col, 0, row)
+                tile_node.setP(-90)
+
+                cn = CollisionNode(f"tile_collision_{col}_{row}")
+                cm.setFrame(0, 1, 0, 1)
+                cn_np = tile_node.attachNewNode(cn)
+
+                self.tile_nodes[tile_pos] = tile_node
+
+                if self.is_river(tile_pos):
+                    tile_node.setTexture(self.textures["river_tile"])
                 else:
-                    pygame.draw.rect(self.screen, (245, 222, 179), rect)
+                    tile_node.setTexture(self.textures["normal_tile"])
 
-                if tile_pos not in self.rivers():
-                    pygame.draw.rect(self.screen, (0, 0, 0), rect, 1)
+                if self.is_trap(tile_pos):
+                    trap_overlay = self.board_root.attachNewNode(cm.generate())
+                    trap_overlay.setPos(col, 0.01, row)
+                    trap_overlay.setP(-90)
+                    trap_overlay.setTexture(self.textures["trap"])
+                    trap_overlay.setTransparency(TransparencyAttrib.MAlpha)
 
-                if tile_pos in self.caves():
-                    self.screen.blit(self.cave_image, rect.topleft)
+                if self.is_cave(tile_pos):
+                    cave_overlay = self.board_root.attachNewNode(cm.generate())
+                    cave_overlay.setPos(col, 0.01, row)
+                    cave_overlay.setP(-90)
+                    cave_overlay.setTexture(self.textures["cave"])
+                    cave_overlay.setTransparency(TransparencyAttrib.MAlpha)
 
-                if tile_pos in self.traps():
-                    self.screen.blit(self.trap_image, rect.topleft)
+        for y in range(game_map.height()):
+            for x in range(game_map.width()):
+                piece = state.get_piece_at_position(Position(x, y))
+                if piece:
+                    self.create_piece_node(piece)
 
-                piece = self.game.get_state().get_piece_at_position(tile_pos)
-                if piece and piece != self.selected_piece:
-                    img = self.animal_images[piece.type]
-                    center = (rect.centerx, rect.centery)
-                    pygame.draw.circle(
-                        self.screen, (255, 255, 255), center, TILE_SIZE // 2 - 4
-                    )
+    def create_piece_node(self, piece: Piece):
+        state = self.game.get_state()
+        position = state.get_piece_position(piece)
+        if not position:
+            return
+        cm = CardMaker(f"piece_{piece}")
+        cm.setFrame(-0.45, 0.45, -0.45, 0.45)
 
-                    img_rect = img.get_rect(center=center)
-                    self.screen.blit(img, img_rect.topleft)
+        piece_node = self.board_root.attachNewNode(cm.generate())
+        piece_node.setPos(position.x, 0.1, position.y)
+        piece_node.setP(-90)
 
-                    team_color = (
-                        (255, 0, 0) if piece.color == Color.RED else (0, 0, 255)
-                    )
-                    pygame.draw.circle(
-                        self.screen, team_color, center, TILE_SIZE // 2 - 4, 4
-                    )
+        cn = CollisionNode(f"piece_collision_{piece}")
+        cm.setFrame(-0.45, 0.45, -0.45, 0.45)
+        cn_np = piece_node.attachNewNode(cn)
 
-        turn_text = self.font.render(
-            f"{self.game.get_turn().to_string().upper()}'s TURN",
-            True,
-            (255, 0, 0) if self.game.get_turn() == Color.RED else (0, 0, 255),
+        piece_node.setTexture(self.textures[piece.type])
+        piece_node.setTransparency(TransparencyAttrib.MAlpha)
+
+        border_color = (1, 0, 0, 1) if piece.color == Color.RED else (0, 0, 1, 1)
+        self.create_piece_border(piece_node, border_color)
+
+        self.piece_nodes[piece] = piece_node
+
+    def create_piece_border(self, piece_node: NodePath, color):
+        cm = CardMaker("border")
+        cm.setFrame(-0.48, 0.48, -0.48, 0.48)
+
+        border = piece_node.attachNewNode(cm.generate())
+        border.setPos(0, -0.01, 0)
+        border.setColor(*color)
+
+    def create_ui(self):
+        self.turn_text = OnscreenText(
+            text="RED'S TURN",
+            pos=(-0.9, 0.9),
+            scale=0.07,
+            fg=(1, 0, 0, 1),
+            align=TextNode.ALeft,
         )
-        self.screen.blit(turn_text, (20, 20))
 
-        self.quit_button.draw(self.screen)
-        self.menu_button.draw(self.screen)
+        self.status_text = OnscreenText(
+            text="", pos=(-0.9, -0.9), scale=0.05, fg=(0, 0, 0, 1), align=TextNode.ALeft
+        )
 
-        status_text = self.small_font.render(self.status_message, True, (0, 0, 0))
-        self.screen.blit(status_text, (20, SCREEN_HEIGHT - 30))
+        self.quit_button = DirectButton(
+            text="QUIT",
+            scale=0.07,
+            pos=(0.9, 0, 0.9),
+            frameColor=(0.8, 0.2, 0.2, 1),
+            command=self.quit_game,
+        )
 
-    def step(self, events: List[Event]) -> GameScene:
-        mouse_pos = pygame.mouse.get_pos()
-        self.quit_button.update(mouse_pos)
-        self.menu_button.update(mouse_pos)
+        self.menu_button = DirectButton(
+            text="MENU",
+            scale=0.07,
+            pos=(0.7, 0, 0.9),
+            frameColor=(0.3, 0.3, 0.8, 1),
+            command=self.return_to_menu,
+        )
 
-        for event in events:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if self.quit_button.is_clicked(mouse_pos):
-                    pygame.quit()
-                    exit()
+    def setup_mouse_picking(self):
+        self.base.accept("mouse1", self.on_mouse_down)
+        self.base.accept("mouse1-up", self.on_mouse_up)
 
-                elif self.menu_button.is_clicked(mouse_pos):
-                    from ui.menu_scene import MenuScene
+    def on_mouse_down(self):
+        if self.game_over:
+            return
 
-                    return MenuScene(self.screen)
+        if not self.base.mouseWatcherNode.hasMouse():
+            return
 
-            if not self.game_over and event.type == pygame.MOUSEBUTTONDOWN:
-                pos = self.get_board_mouse_pos(*pygame.mouse.get_pos())
-                if pos is not None:
-                    piece = self.game.get_state().get_piece_at_position(pos)
-                    if piece and piece.color == self.game.get_turn():
-                        self.selected_piece = piece
+        mouse_pos = self.base.mouseWatcherNode.getMouse()
 
-            elif not self.game_over and event.type == pygame.MOUSEBUTTONUP:
-                if self.selected_piece:
-                    mx, my = event.pos
-                    pos = self.get_board_mouse_pos(mx, my)
-                    if pos is not None:
-                        self.game.move(self.selected_piece, pos)
-                self.selected_piece = None
+        self.base.pickerRay.setFromLens(
+            self.base.camNode, mouse_pos.getX(), mouse_pos.getY()
+        )
+        self.base.cTrav.traverse(self.base.render)
 
-        winner = self.game.is_game_over()
-        if winner is not None:
-            self.status_message = f"{winner.to_string()} won! Game over."
-            self.game_over = True
-        self.draw_board()
+        if self.base.pq.getNumEntries() > 0:
+            self.base.pq.sortEntries()
+            picked_obj = self.base.pq.getEntry(0).getIntoNodePath()
 
+            for piece, node in self.piece_nodes.items():
+                if picked_obj.isAncestorOf(node) or node.isAncestorOf(picked_obj):
+                    current_state = self.game.get_state()
+                    for game_piece in current_state.get_all_pieces():
+                        if (
+                            game_piece == piece
+                            and game_piece.color == self.game.get_turn()
+                        ):
+                            self.selected_piece = game_piece
+                            self.dragging = True
+                            self.drag_piece_node = node
+                            return
+
+    def on_mouse_up(self):
+        if not self.dragging or not self.selected_piece:
+            return
+
+        self.dragging = False
+
+        if not self.base.mouseWatcherNode.hasMouse():
+            self.cancel_drag()
+            return
+
+        mouse_pos = self.base.mouseWatcherNode.getMouse()
+        self.base.pickerRay.setFromLens(
+            self.base.camNode, mouse_pos.getX(), mouse_pos.getY()
+        )
+        self.base.cTrav.traverse(self.base.render)
+
+        if self.base.pq.getNumEntries() > 0:
+            self.base.pq.sortEntries()
+            picked_obj = self.base.pq.getEntry(0).getIntoNodePath()
+
+            for pos, node in self.tile_nodes.items():
+                if picked_obj.isAncestorOf(node) or node.isAncestorOf(picked_obj):
+                    self.game.move(self.selected_piece, pos)
+                    break
+
+        self.update_board_state()
+        self.selected_piece = None
+        self.drag_piece_node = None
+
+    def cancel_drag(self):
+        state = self.game.get_state()
         if self.selected_piece:
-            mx, my = pygame.mouse.get_pos()
-            img = self.animal_images[self.selected_piece.type]
-            pygame.draw.circle(
-                self.screen, (255, 255, 255), (mx, my), TILE_SIZE // 2 - 4
-            )
-            img_rect = img.get_rect(center=(mx, my))
-            self.screen.blit(img, img_rect.topleft)
+            node = self.piece_nodes.get(self.selected_piece)
+            position = state.get_piece_position(self.selected_piece)
+            if node and position:
+                node.setPos(position.x, 0.1, position.y)
 
-            team_color = (
-                (255, 0, 0) if self.selected_piece.color == Color.RED else (0, 0, 255)
-            )
-            pygame.draw.circle(self.screen, team_color, (mx, my), TILE_SIZE // 2 - 4, 4)
+        self.selected_piece = None
+        self.drag_piece_node = None
+        self.dragging = False
 
-        return None
+    def update_board_state(self):
+        state = self.game.get_state()
+
+        for piece in state.get_all_pieces():
+            node = self.piece_nodes.get(piece)
+            position = state.get_piece_position(piece)
+            if node and position:
+                node.setPos(position.x, 0.1, position.y)
+
+        for piece_id in list(self.piece_nodes.keys()):
+            found = False
+            for piece in state.get_all_pieces():
+                if piece == piece_id:
+                    found = True
+                    break
+
+            if not found:
+                self.piece_nodes[piece_id].removeNode()
+                del self.piece_nodes[piece_id]
+
+        turn_color = (1, 0, 0, 1) if self.game.get_turn() == Color.RED else (0, 0, 1, 1)
+        turn_text = f"{self.game.get_turn().to_string().upper()}'S TURN"
+        self.turn_text.setText(turn_text)
+        self.turn_text.setFg(turn_color)
+
+    @functools.lru_cache(maxsize=None)
+    def is_river(self, pos: Position) -> bool:
+        state = self.game.get_state()
+        map_obj = state.get_map()
+        location = map_obj[pos.y, pos.x]
+        return location is not None and location.is_river
+
+    @functools.lru_cache(maxsize=None)
+    def is_cave(self, pos: Position) -> bool:
+        state = self.game.get_state()
+        map_obj = state.get_map()
+        location = map_obj[pos.y, pos.x]
+        return location is not None and location.cave_color is not None
+
+    @functools.lru_cache(maxsize=None)
+    def is_trap(self, pos: Position) -> bool:
+        state = self.game.get_state()
+        map_obj = state.get_map()
+        location = map_obj[pos.y, pos.x]
+        return location is not None and location.trap_color is not None
+
+    def quit_game(self):
+        import sys
+
+        sys.exit()
+
+    def return_to_menu(self):
+        self.cleanup()
+        from ui.menu_scene import MenuScene
+
+        new_scene = MenuScene(self.base)
+        new_scene.setup()
+        return new_scene
+
+    def step(self, task):
+        winner = self.game.is_game_over()
+        if winner is not None and not self.game_over:
+            self.status_message = f"{winner.to_string()} won! Game over."
+            self.status_text.setText(self.status_message)
+            self.game_over = True
+
+        if (
+            self.dragging
+            and self.drag_piece_node
+            and self.base.mouseWatcherNode.hasMouse()
+        ):
+            mouse_pos = self.base.mouseWatcherNode.getMouse()
+
+            near_point = Point3()
+            far_point = Point3()
+            self.base.camLens.extrude(mouse_pos, near_point, far_point)
+
+            t = -near_point.y / (far_point.y - near_point.y)
+            x = near_point.x + t * (far_point.x - near_point.x)
+            z = near_point.z + t * (far_point.z - near_point.z)
+
+            x = max(0, min(BOARD_COLS - 1, x))
+            z = max(0, min(BOARD_ROWS - 1, z))
+
+            self.drag_piece_node.setPos(x, 0.2, z)
+
+        return Task.cont
+
+    def cleanup(self):
+        self.board_root.removeNode()
+
+        self.turn_text.destroy()
+        self.status_text.destroy()
+        self.quit_button.destroy()
+        self.menu_button.destroy()
+
+        self.base.ignore("mouse1")
+        self.base.ignore("mouse1-up")
+
+        self.base.taskMgr.remove("GameStepTask")

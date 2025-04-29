@@ -1,33 +1,56 @@
-from typing import Tuple
-import pygame
-from pygame.font import Font
-from pygame.surface import Surface
+from typing import Callable, Tuple, Any
+from direct.gui.DirectButton import DirectButton
+from panda3d.core import TextNode
 
 
 class Button:
-    def __init__(self, x: int, y: int, width: int, height: int, text: str, font: Font):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.text = text
-        self.font = font
-        self.is_hovered = False
-        self.normal_color = (100, 100, 100)
-        self.hover_color = (150, 150, 150)
-        self.text_color = (255, 255, 255)
-        self.border_radius = 10
+    def __init__(
+        self, x: int, y: int, width: int, height: int, text: str, font_size: int = 14
+    ):
+        screen_width = base.win.getXSize()
+        screen_height = base.win.getYSize()
 
-    def draw(self, screen: Surface) -> None:
-        color = self.hover_color if self.is_hovered else self.normal_color
-        pygame.draw.rect(screen, color, self.rect, border_radius=self.border_radius)
-        pygame.draw.rect(
-            screen, (0, 0, 0), self.rect, 2, border_radius=self.border_radius
+        px = (x + width / 2) / screen_width * 2 - 1
+        py = 1 - (y + height / 2) / screen_height * 2
+
+        scale_x = width / screen_width
+        scale_y = height / screen_height
+
+        self.button = DirectButton(
+            text=text,
+            pos=(px, 0, py),
+            scale=(scale_x, 1, scale_y),
+            text_scale=(font_size / 100, font_size / 100),
+            relief="raised",
+            frameColor=(0.3, 0.5, 0.3, 1),
+            text_fg=(1, 1, 1, 1),
+            command=self._on_click,
+            rolloverSound=None,
+            clickSound=None,
+            text_align=TextNode.ACenter,
         )
 
-        text_surface = self.font.render(self.text, True, self.text_color)
-        text_rect = text_surface.get_rect(center=self.rect.center)
-        screen.blit(text_surface, text_rect)
+        self.click_callback = None
 
-    def update(self, mouse_pos: Tuple[int, int]) -> None:
-        self.is_hovered = self.rect.collidepoint(mouse_pos)
+    def set_click_callback(
+        self, callback: Callable[[Tuple[float, float]], Any]
+    ) -> None:
+        self.click_callback = callback
 
-    def is_clicked(self, mouse_pos: Tuple[int, int]) -> bool:
-        return self.rect.collidepoint(mouse_pos)
+    def _on_click(self) -> None:
+        if self.click_callback:
+            # For DirectButton, we don't have direct access to mouse position
+            # So we'll pass (0, 0) as a placeholder or can use base.mouseWatcherNode
+            # to get the actual mouse position if needed
+            mouse_pos = (0, 0)
+            if hasattr(base, "mouseWatcherNode") and base.mouseWatcherNode.hasMouse():
+                mouse_pos = (
+                    base.mouseWatcherNode.getMouseX(),
+                    base.mouseWatcherNode.getMouseY(),
+                )
+            self.click_callback(mouse_pos)
+
+    def destroy(self) -> None:
+        if self.button:
+            self.button.destroy()
+            self.button = None

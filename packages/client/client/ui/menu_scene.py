@@ -1,77 +1,67 @@
-import os
-from typing import List, Optional
 from dotenv import load_dotenv
-from pygame import Surface
-import pygame
-from pygame.event import Event
+from direct.gui.OnscreenText import OnscreenText
+from panda3d.core import TextNode, LVecBase4f
+
 from ui.button import Button
 from ui.difficulty_menu_scene import DifficultyMenuScene
 from ui.offline_pvp_match_scene import OfflinePvPMatchScene
 from ui.game_scene import GameScene
-from ui.constants import (
-    SCREEN_WIDTH,
-    SCREEN_HEIGHT,
-)
-from ui.matchmaking_scene import MatchmakingScene
-from controller.network import ServerConnector
-
+from ui.constants import SCREEN_WIDTH, SCREEN_HEIGHT
 
 load_dotenv()
 
 
 class MenuScene(GameScene):
-    def __init__(self, screen: Surface):
-        self.screen = screen
-        self.background = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        self.background.fill((50, 100, 50))
-        self.title_font = pygame.font.SysFont("Arial", 64, bold=True)
-        self.button_font = pygame.font.SysFont("Arial", 36)
+    def __init__(self, app):
+        super().__init__(app)
+
+        self.title = None
+        self.buttons = []
+
+    def setup(self):
+        background_color = LVecBase4f(0.2, 0.4, 0.2, 1.0)
+        self.app.win.setClearColor(background_color)
+
+        self.title = OnscreenText(
+            text="Animal Chess",
+            pos=(0, 0.7),
+            scale=0.15,
+            fg=(1, 1, 1, 1),
+            align=TextNode.ACenter,
+            mayChange=False,
+        )
+        self.ui_elements.append(self.title)
+
         button_width = 400
         button_height = 60
         button_spacing = 20
         start_y = SCREEN_HEIGHT // 2 - 100
+
         buttons_info = [
             "Computer vs Player",
             "Player vs Player",
-            "Online",
             "Quit",
         ]
+
         self.buttons = []
         for i, text in enumerate(buttons_info):
             x = SCREEN_WIDTH // 2 - button_width // 2
             y = start_y + i * (button_height + button_spacing)
-            self.buttons.append(
-                Button(x, y, button_width, button_height, text, self.button_font)
-            )
+            button = Button(x, y, button_width, button_height, text, 36)
+            self.buttons.append(button)
+            self.ui_elements.append(button)
 
-    def step(self, events: List[Event]) -> Optional[GameScene]:
-        mouse_pos = pygame.mouse.get_pos()
-        for button in self.buttons:
-            button.update(mouse_pos)
-        for event in events:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                for i, button in enumerate(self.buttons):
-                    if button.is_clicked(mouse_pos):
-                        if i == 0:
-                            return DifficultyMenuScene(self.screen)
-                        elif i == 1:
-                            return OfflinePvPMatchScene(self.screen)
-                        elif i == 2:
-                            ip = os.getenv("SERVER_ADDRESS") or "0.0.0.0"
-                            port = int(os.getenv("SERVER_PORT") or "8686")
-                            connector = ServerConnector(ip=ip, port=port)
-                            connector.Connect()
-                            return MatchmakingScene(self.screen, connector)
-                        elif i == 3:
-                            pygame.quit()
-                            exit()
-        self.draw()
+        self.buttons[0].set_click_callback(lambda pos: self.handle_button_click(0))
+        self.buttons[1].set_click_callback(lambda pos: self.handle_button_click(1))
+        self.buttons[2].set_click_callback(lambda pos: self.handle_button_click(3))
+
+    def handle_button_click(self, button_index: int):
+        if button_index == 0:
+            self.app.next_scene = DifficultyMenuScene(self.app)
+        elif button_index == 1:
+            self.app.next_scene = OfflinePvPMatchScene(self.app)
+        elif button_index == 2:
+            self.app.userExit()
+
+    def step(self, dt):
         return None
-
-    def draw(self) -> None:
-        self.screen.blit(self.background, (0, 0))
-        title_text = self.title_font.render("Animal Chess", True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 150))
-        self.screen.blit(title_text, title_rect)
-        for button in self.buttons:
-            button.draw(self.screen)

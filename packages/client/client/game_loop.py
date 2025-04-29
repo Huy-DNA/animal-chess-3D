@@ -1,45 +1,60 @@
-import pygame
-from pygame.time import Clock
+from direct.showbase.ShowBase import ShowBase
+from direct.task import Task
+from panda3d.core import WindowProperties
+
 from ui.menu_scene import MenuScene
-from ui.game_scene import GameScene
 from ui.constants import SCREEN_WIDTH, SCREEN_HEIGHT
 
 
-class GameLoop:
-    __screen: pygame.Surface
-    __running: bool
-    __fps: int
-    __clock: Clock
-    __current_scene: GameScene
-
+class GameLoop(ShowBase):
     def __init__(self):
-        pygame.init()
-        self.__screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        self.__running = False
-        self.__fps = 60
-        self.__clock = pygame.time.Clock()
-        self.__switch_scene(MenuScene(self.__screen))
+        ShowBase.__init__(self)
 
-    def __switch_scene(self, scene: GameScene):
-        self.__current_scene = scene
+        props = WindowProperties()
+        props.setSize(SCREEN_WIDTH, SCREEN_HEIGHT)
+        props.setTitle("Game Title")
+        self.win.requestProperties(props)
 
-    def run(self):
-        self.__running = True
+        self.disableMouse()
 
-        while self.__running:
-            scene_events = []
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.__running = False
-                    break
+        self.setFrameRateMeter(True)
+        self.clock = self.globalClock
+        self.clock.setMode(self.clock.MLimited)
+        self.clock.setFrameRate(60)
 
-                scene_events.append(event)
+        self.current_scene = None
+        self.next_scene = None
 
-            next_scene = self.__current_scene.step(scene_events)
-            if next_scene:
-                self.__switch_scene(next_scene)
-            pygame.display.flip()
+        self.switch_scene(MenuScene(self))
 
-            self.__clock.tick(self.__fps)
+        self.taskMgr.add(self.game_loop, "GameLoop")
 
-        pygame.quit()
+        self.accept("escape", self.user_exit)
+        self.accept("window-close", self.user_exit)
+
+    def switch_scene(self, scene):
+        if self.current_scene:
+            self.current_scene.cleanup()
+
+        self.current_scene = scene
+        self.next_scene = None
+
+        self.current_scene.setup()
+
+    def game_loop(self, task):
+        if not self.current_scene:
+            return Task.cont
+
+        if self.next_scene:
+            self.switch_scene(self.next_scene)
+            return Task.cont
+
+        result = self.current_scene.step(self.clock.getDt())
+
+        if result:
+            self.next_scene = result
+
+        return Task.cont
+
+    def user_exit(self):
+        self.userExit()

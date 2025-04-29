@@ -1,26 +1,34 @@
 from typing import List
-from pygame import Surface
-import pygame
-from pygame.event import Event
-from ui.offline_cvp_match_scene import DifficultyMode, OfflineCvPMatchScene
-from ui.button import Button
-import ui.menu_scene
+from direct.showbase.ShowBase import ShowBase
+from direct.gui.OnscreenText import OnscreenText
+from panda3d.core import TextNode, LVecBase4f
+
 from ui.game_scene import GameScene
-from ui.constants import (
-    SCREEN_WIDTH,
-    SCREEN_HEIGHT,
-)
+from ui.button import Button
+from ui.offline_cvp_match_scene import DifficultyMode, OfflineCvPMatchScene
+import ui.menu_scene
+from ui.constants import SCREEN_WIDTH, SCREEN_HEIGHT
 
 
 class DifficultyMenuScene(GameScene):
-    def __init__(self, screen: Surface):
-        self.screen = screen
+    def __init__(self, app):
+        super().__init__(app)
+        self.title = None
+        self.buttons = []
 
-        self.background = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        self.background.fill((50, 100, 50))
+    def setup(self):
+        background_color = LVecBase4f(0.2, 0.4, 0.2, 1.0)
+        self.app.win.setClearColor(background_color)
 
-        self.title_font = pygame.font.SysFont("Arial", 64, bold=True)
-        self.button_font = pygame.font.SysFont("Arial", 36)
+        self.title = OnscreenText(
+            text="Difficulty",
+            pos=(0, 0.7),
+            scale=0.15,
+            fg=(1, 1, 1, 1),
+            align=TextNode.ACenter,
+            mayChange=False,
+        )
+        self.ui_elements.append(self.title)
 
         button_width = 400
         button_height = 60
@@ -38,45 +46,25 @@ class DifficultyMenuScene(GameScene):
         for i, text in enumerate(buttons_info):
             x = SCREEN_WIDTH // 2 - button_width // 2
             y = start_y + i * (button_height + button_spacing)
-            self.buttons.append(
-                Button(x, y, button_width, button_height, text, self.button_font)
-            )
+            button = Button(x, y, button_width, button_height, text, 36)
+            self.buttons.append(button)
+            self.ui_elements.append(button)
 
-    def step(self, events: List[Event]) -> GameScene:
-        mouse_pos = pygame.mouse.get_pos()
+        self.buttons[0].set_click_callback(lambda pos: self.handle_button_click(0))
+        self.buttons[1].set_click_callback(lambda pos: self.handle_button_click(1))
+        self.buttons[2].set_click_callback(lambda pos: self.handle_button_click(2))
+        self.buttons[3].set_click_callback(lambda pos: self.handle_button_click(3))
 
-        for button in self.buttons:
-            button.update(mouse_pos)
-
-        for event in events:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                for i, button in enumerate(self.buttons):
-                    if button.is_clicked(mouse_pos):
-                        if i == 0:
-                            return OfflineCvPMatchScene(
-                                DifficultyMode.EASY, self.screen
-                            )
-                        elif i == 1:
-                            return OfflineCvPMatchScene(
-                                DifficultyMode.MEDIUM, self.screen
-                            )
-                        elif i == 2:
-                            return OfflineCvPMatchScene(
-                                DifficultyMode.HARD, self.screen
-                            )
-                        elif i == 3:
-                            return ui.menu_scene.MenuScene(self.screen)
-
-        self.draw()
-
+    def handle_button_click(self, button_index: int):
+        if button_index == 0:
+            return OfflineCvPMatchScene(DifficultyMode.EASY, self.app)
+        elif button_index == 1:
+            return OfflineCvPMatchScene(DifficultyMode.MEDIUM, self.app)
+        elif button_index == 2:
+            return OfflineCvPMatchScene(DifficultyMode.HARD, self.app)
+        elif button_index == 3:
+            return ui.menu_scene.MenuScene(self.app)
         return None
 
-    def draw(self) -> None:
-        self.screen.blit(self.background, (0, 0))
-
-        title_text = self.title_font.render("Difficulty", True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 150))
-        self.screen.blit(title_text, title_rect)
-
-        for button in self.buttons:
-            button.draw(self.screen)
+    def step(self, dt):
+        return None
