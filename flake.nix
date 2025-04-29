@@ -13,7 +13,7 @@
           uv
           ruff
           python311
-          python311Packages.pygame
+          python311Packages.numpy
           neovim
         ];
         shellHook = ''
