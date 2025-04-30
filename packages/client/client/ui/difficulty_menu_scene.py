@@ -1,5 +1,3 @@
-from typing import List
-from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import TextNode, LVecBase4f
 
@@ -31,9 +29,9 @@ class DifficultyMenuScene(GameScene):
         self.ui_elements.append(self.title)
 
         button_width = 400
-        button_height = 250
-        button_spacing = 1
-        start_y = SCREEN_HEIGHT // 2 - 100
+        button_height = 300
+        button_spacing = -100
+        start_y = SCREEN_HEIGHT // 2 - 200
 
         buttons_info = [
             "Easy",

@@ -33,9 +33,9 @@ class MenuScene(GameScene):
         self.ui_elements.append(self.title)
 
         button_width = 400
-        button_height = 250
-        button_spacing = 1
-        start_y = SCREEN_HEIGHT // 2 - 100
+        button_height = 300
+        button_spacing = -100
+        start_y = SCREEN_HEIGHT // 2 - 200
 
         buttons_info = [
             "Computer vs Player",
@@ -53,7 +53,7 @@ class MenuScene(GameScene):
 
         self.buttons[0].set_click_callback(lambda pos: self.handle_button_click(0))
         self.buttons[1].set_click_callback(lambda pos: self.handle_button_click(1))
-        self.buttons[2].set_click_callback(lambda pos: self.handle_button_click(3))
+        self.buttons[2].set_click_callback(lambda pos: self.handle_button_click(2))
 
     def handle_button_click(self, button_index: int):
         if button_index == 0:
