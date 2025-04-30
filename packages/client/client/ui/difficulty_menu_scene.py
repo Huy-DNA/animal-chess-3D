@@ -13,6 +13,7 @@ class DifficultyMenuScene(GameScene):
         super().__init__(app)
         self.title = None
         self.buttons = []
+        self.next_scene = None
 
     def setup(self):
         background_color = LVecBase4f(0.2, 0.4, 0.2, 1.0)
@@ -55,14 +56,14 @@ class DifficultyMenuScene(GameScene):
 
     def handle_button_click(self, button_index: int):
         if button_index == 0:
-            return OfflineCvPMatchScene(DifficultyMode.EASY, self.app)
+            self.next_scene = OfflineCvPMatchScene(DifficultyMode.EASY, self.app)
         elif button_index == 1:
-            return OfflineCvPMatchScene(DifficultyMode.MEDIUM, self.app)
+            self.next_scene = OfflineCvPMatchScene(DifficultyMode.MEDIUM, self.app)
         elif button_index == 2:
-            return OfflineCvPMatchScene(DifficultyMode.HARD, self.app)
+            self.next_scene = OfflineCvPMatchScene(DifficultyMode.HARD, self.app)
         elif button_index == 3:
-            return ui.menu_scene.MenuScene(self.app)
+            self.next_scene = ui.menu_scene.MenuScene(self.app)
         return None
 
     def step(self, dt):
-        return None
+        return self.next_scene

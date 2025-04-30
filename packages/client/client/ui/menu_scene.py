@@ -17,6 +17,7 @@ class MenuScene(GameScene):
 
         self.title = None
         self.buttons = []
+        self.next_scene = None
 
     def setup(self):
         background_color = LVecBase4f(0.2, 0.4, 0.2, 1.0)
@@ -57,11 +58,11 @@ class MenuScene(GameScene):
 
     def handle_button_click(self, button_index: int):
         if button_index == 0:
-            self.app.next_scene = DifficultyMenuScene(self.app)
+            self.next_scene = DifficultyMenuScene(self.app)
         elif button_index == 1:
-            self.app.next_scene = OfflinePvPMatchScene(self.app)
+            self.next_scene = OfflinePvPMatchScene(self.app)
         elif button_index == 2:
             self.app.userExit()
 
     def step(self, dt):
-        return None
+        return self.next_scene
