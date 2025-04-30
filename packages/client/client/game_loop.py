@@ -22,7 +22,6 @@ class GameLoop(ShowBase):
         globalClock.setFrameRate(60)
 
         self.current_scene = None
-        self.next_scene = None
 
         self.switch_scene(MenuScene(self))
 
@@ -44,14 +43,11 @@ class GameLoop(ShowBase):
         if not self.current_scene:
             return Task.cont
 
-        if self.next_scene:
-            self.switch_scene(self.next_scene)
-            return Task.cont
-
         result = self.current_scene.step(self.clock.getDt())
 
         if result:
-            self.next_scene = result
+            self.switch_scene(result)
+            return Task.cont
 
         return Task.cont
 

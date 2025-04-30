@@ -49,6 +49,7 @@ class OfflineCvPMatchScene(GameScene):
         self.selected_piece = None
         self.piece_nodes = {}
         self.tile_nodes = {}
+        self.next_scene = None
 
         self.status_message = ""
 
@@ -69,7 +70,6 @@ class OfflineCvPMatchScene(GameScene):
         self.dragging = False
         self.drag_piece_node = None
 
-        # Initialize collision detection
         self.app.cTrav = CollisionTraverser()
         self.app.pq = CollisionHandlerQueue()
         self.app.pickerRay = CollisionRay()
@@ -190,11 +190,16 @@ class OfflineCvPMatchScene(GameScene):
                     self.create_piece_node(piece)
 
     def create_piece_node(self, piece: Piece):
+        state = self.game.get_state()
+        position = state.get_piece_position(piece)
+        if not position:
+            return
+
         cm = CardMaker(f"piece_{piece}")
         cm.setFrame(-0.45, 0.45, -0.45, 0.45)
 
         piece_node = self.board_root.attachNewNode(cm.generate())
-        piece_node.setPos(piece.position.x, 0.1, piece.position.y)
+        piece_node.setPos(position.x, 0.1, position.y)
         piece_node.setP(-90)
 
         # Add collision for piece
@@ -272,7 +277,7 @@ class OfflineCvPMatchScene(GameScene):
             for piece, node in self.piece_nodes.items():
                 if picked_obj.isAncestorOf(node) or node.isAncestorOf(picked_obj):
                     current_state = self.game.get_state()
-                    for game_piece in current_state.get_pieces():
+                    for game_piece in current_state.get_all_pieces():
                         if (
                             game_piece == piece
                             and game_piece.color == self.game.get_turn()
@@ -283,7 +288,6 @@ class OfflineCvPMatchScene(GameScene):
                             return
 
     def on_mouse_up(self):
-        """Handle mouse button up event"""
         if not self.dragging or not self.selected_piece:
             return
 
@@ -313,12 +317,12 @@ class OfflineCvPMatchScene(GameScene):
         self.drag_piece_node = None
 
     def cancel_drag(self):
+        state = self.game.get_state()
         if self.selected_piece:
             node = self.piece_nodes.get(self.selected_piece)
-            if node:
-                node.setPos(
-                    self.selected_piece.position.x, 0.1, self.selected_piece.position.y
-                )
+            position = state.get_piece_position(self.selected_piece)
+            if node and position:
+                node.setPos(position.x, 0.1, position.y)
 
         self.selected_piece = None
         self.drag_piece_node = None
@@ -327,14 +331,15 @@ class OfflineCvPMatchScene(GameScene):
     def update_board_state(self):
         state = self.game.get_state()
 
-        for piece in state.get_pieces():
+        for piece in state.get_all_pieces():
             node = self.piece_nodes.get(piece)
-            if node:
-                node.setPos(piece.position.x, 0.1, piece.position.y)
+            position = state.get_piece_position(piece)
+            if node and position:
+                node.setPos(position.x, 0.1, position.y)
 
         for piece_id in list(self.piece_nodes.keys()):
             found = False
-            for piece in state.get_pieces():
+            for piece in state.get_all_pieces():
                 if piece == piece_id:
                     found = True
                     break
@@ -353,21 +358,21 @@ class OfflineCvPMatchScene(GameScene):
         state = self.game.get_state()
         map_obj = state.get_map()
         location = map_obj[pos.y, pos.x]
-        return location and location.is_river
+        return location is not None and location.is_river
 
     @functools.lru_cache(maxsize=None)
     def is_cave(self, pos: Position) -> bool:
         state = self.game.get_state()
         map_obj = state.get_map()
         location = map_obj[pos.y, pos.x]
-        return location and location.cave_color is not None
+        return location is not None and location.cave_color is not None
 
     @functools.lru_cache(maxsize=None)
     def is_trap(self, pos: Position) -> bool:
         state = self.game.get_state()
         map_obj = state.get_map()
         location = map_obj[pos.y, pos.x]
-        return location and location.trap_color is not None
+        return location is not None and location.trap_color is not None
 
     def quit_game(self):
         sys.exit()
@@ -376,9 +381,7 @@ class OfflineCvPMatchScene(GameScene):
         self.cleanup()
         from ui.menu_scene import MenuScene
 
-        new_scene = MenuScene(self.app)
-        new_scene.setup()
-        return new_scene
+        self.next_scene = MenuScene(self.app)
 
     def step(self, task):
         winner = self.game.is_game_over()
@@ -411,7 +414,7 @@ class OfflineCvPMatchScene(GameScene):
 
             self.drag_piece_node.setPos(x, 0.2, z)
 
-        return Task.cont
+        return self.next_scene
 
     def cleanup(self):
         self.board_root.removeNode()

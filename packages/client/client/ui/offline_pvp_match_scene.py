@@ -34,6 +34,7 @@ class OfflinePvPMatchScene(GameScene):
         self.selected_piece = None
         self.piece_nodes = {}
         self.tile_nodes = {}
+        self.next_scene = None
 
         self.status_message = ""
 
@@ -352,9 +353,7 @@ class OfflinePvPMatchScene(GameScene):
         self.cleanup()
         from ui.menu_scene import MenuScene
 
-        new_scene = MenuScene(self.app)
-        new_scene.setup()
-        return new_scene
+        self.next_scene = MenuScene(self.app)
 
     def step(self, task):
         winner = self.game.is_game_over()
@@ -383,7 +382,7 @@ class OfflinePvPMatchScene(GameScene):
 
             self.drag_piece_node.setPos(x, 0.2, z)
 
-        return Task.cont
+        return self.next_scene
 
     def cleanup(self):
         self.board_root.removeNode()
