@@ -10,6 +10,7 @@
     in {
       devShell = pkgs.mkShell {
         packages = with pkgs; [
+          stdenv.cc.cc.lib
           uv
           ruff
           python311
@@ -19,6 +20,7 @@
         shellHook = ''
           uv sync
         '';
+        LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
       };
     });
 }
