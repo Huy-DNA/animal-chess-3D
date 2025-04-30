@@ -42,6 +42,7 @@ class DifficultyMode(Enum):
 class OfflineCvPMatchScene(GameScene):
     def __init__(self, mode: DifficultyMode, base: ShowBase):
         super().__init__(base)
+
         self.game_over = False
         self.game = Game()
 
@@ -69,22 +70,22 @@ class OfflineCvPMatchScene(GameScene):
         self.drag_piece_node = None
 
         # Initialize collision detection
-        self.base.cTrav = CollisionTraverser()
-        self.base.pq = CollisionHandlerQueue()
-        self.base.pickerRay = CollisionRay()
+        self.app.cTrav = CollisionTraverser()
+        self.app.pq = CollisionHandlerQueue()
+        self.app.pickerRay = CollisionRay()
         self.picker_node = CollisionNode("mouseRay")
-        self.picker_node.addSolid(self.base.pickerRay)
-        self.picker_np = self.base.camera.attachNewNode(self.picker_node)
-        self.base.cTrav.addCollider(self.picker_np, self.base.pq)
+        self.picker_node.addSolid(self.app.pickerRay)
+        self.picker_np = self.app.camera.attachNewNode(self.picker_node)
+        self.app.cTrav.addCollider(self.picker_np, self.app.pq)
 
     def setup(self):
-        self.base.setBackgroundColor(0.5, 0.8, 1.0)
+        self.app.setBackgroundColor(0.5, 0.8, 1.0)
 
-        self.base.disableMouse()
-        self.base.camera.setPos(BOARD_COLS / 2, -10, BOARD_ROWS / 2 + 2)
-        self.base.camera.lookAt(BOARD_COLS / 2, 0, BOARD_ROWS / 2)
+        self.app.disableMouse()
+        self.app.camera.setPos(BOARD_COLS / 2, -10, BOARD_ROWS / 2 + 2)
+        self.app.camera.lookAt(BOARD_COLS / 2, 0, BOARD_ROWS / 2)
 
-        self.board_root = self.base.render.attachNewNode("board_root")
+        self.board_root = self.app.render.attachNewNode("board_root")
 
         self.load_textures()
 
@@ -94,7 +95,7 @@ class OfflineCvPMatchScene(GameScene):
 
         self.setup_mouse_picking()
 
-        self.base.taskMgr.add(self.step, "GameStepTask")
+        self.app.taskMgr.add(self.step, "GameStepTask")
 
     def load_textures(self):
         name_to_type = {
@@ -117,18 +118,18 @@ class OfflineCvPMatchScene(GameScene):
                 "cave-image.png",
                 "river-image.png",
             ]:
-                texture = self.base.loader.loadTexture(os.path.join(ASSETS_PATH, name))
+                texture = self.app.loader.loadTexture(os.path.join(ASSETS_PATH, name))
                 key = name_to_type[name.replace("-image.png", "")]
                 self.textures[key] = texture
 
-        self.textures["trap"] = self.base.loader.loadTexture(
+        self.textures["trap"] = self.app.loader.loadTexture(
             os.path.join(ASSETS_PATH, "trap-image.png")
         )
-        self.textures["cave"] = self.base.loader.loadTexture(
+        self.textures["cave"] = self.app.loader.loadTexture(
             os.path.join(ASSETS_PATH, "cave-image.png")
         )
         self.textures["river"] = (
-            self.base.loader.loadTexture(os.path.join(ASSETS_PATH, "river-image.png"))
+            self.app.loader.loadTexture(os.path.join(ASSETS_PATH, "river-image.png"))
             if os.path.exists(os.path.join(ASSETS_PATH, "river-image.png"))
             else None
         )
@@ -247,26 +248,26 @@ class OfflineCvPMatchScene(GameScene):
         )
 
     def setup_mouse_picking(self):
-        self.base.accept("mouse1", self.on_mouse_down)
-        self.base.accept("mouse1-up", self.on_mouse_up)
+        self.app.accept("mouse1", self.on_mouse_down)
+        self.app.accept("mouse1-up", self.on_mouse_up)
 
     def on_mouse_down(self):
         if self.game_over or self.game.get_turn() == Color.BLUE:
             return
 
-        if not self.base.mouseWatcherNode.hasMouse():
+        if not self.app.mouseWatcherNode.hasMouse():
             return
 
-        mouse_pos = self.base.mouseWatcherNode.getMouse()
+        mouse_pos = self.app.mouseWatcherNode.getMouse()
 
-        self.base.pickerRay.setFromLens(
-            self.base.camNode, mouse_pos.getX(), mouse_pos.getY()
+        self.app.pickerRay.setFromLens(
+            self.app.camNode, mouse_pos.getX(), mouse_pos.getY()
         )
-        self.base.cTrav.traverse(self.base.render)
+        self.app.cTrav.traverse(self.app.render)
 
-        if self.base.pq.getNumEntries() > 0:
-            self.base.pq.sortEntries()
-            picked_obj = self.base.pq.getEntry(0).getIntoNodePath()
+        if self.app.pq.getNumEntries() > 0:
+            self.app.pq.sortEntries()
+            picked_obj = self.app.pq.getEntry(0).getIntoNodePath()
 
             for piece, node in self.piece_nodes.items():
                 if picked_obj.isAncestorOf(node) or node.isAncestorOf(picked_obj):
@@ -288,19 +289,19 @@ class OfflineCvPMatchScene(GameScene):
 
         self.dragging = False
 
-        if not self.base.mouseWatcherNode.hasMouse():
+        if not self.app.mouseWatcherNode.hasMouse():
             self.cancel_drag()
             return
 
-        mouse_pos = self.base.mouseWatcherNode.getMouse()
-        self.base.pickerRay.setFromLens(
-            self.base.camNode, mouse_pos.getX(), mouse_pos.getY()
+        mouse_pos = self.app.mouseWatcherNode.getMouse()
+        self.app.pickerRay.setFromLens(
+            self.app.camNode, mouse_pos.getX(), mouse_pos.getY()
         )
-        self.base.cTrav.traverse(self.base.render)
+        self.app.cTrav.traverse(self.app.render)
 
-        if self.base.pq.getNumEntries() > 0:
-            self.base.pq.sortEntries()
-            picked_obj = self.base.pq.getEntry(0).getIntoNodePath()
+        if self.app.pq.getNumEntries() > 0:
+            self.app.pq.sortEntries()
+            picked_obj = self.app.pq.getEntry(0).getIntoNodePath()
 
             for pos, node in self.tile_nodes.items():
                 if picked_obj.isAncestorOf(node) or node.isAncestorOf(picked_obj):
@@ -375,7 +376,7 @@ class OfflineCvPMatchScene(GameScene):
         self.cleanup()
         from ui.menu_scene import MenuScene
 
-        new_scene = MenuScene(self.base)
+        new_scene = MenuScene(self.app)
         new_scene.setup()
         return new_scene
 
@@ -393,13 +394,13 @@ class OfflineCvPMatchScene(GameScene):
         if (
             self.dragging
             and self.drag_piece_node
-            and self.base.mouseWatcherNode.hasMouse()
+            and self.app.mouseWatcherNode.hasMouse()
         ):
-            mouse_pos = self.base.mouseWatcherNode.getMouse()
+            mouse_pos = self.app.mouseWatcherNode.getMouse()
 
             near_point = Point3()
             far_point = Point3()
-            self.base.camLens.extrude(mouse_pos, near_point, far_point)
+            self.app.camLens.extrude(mouse_pos, near_point, far_point)
 
             t = -near_point.y / (far_point.y - near_point.y)
             x = near_point.x + t * (far_point.x - near_point.x)
@@ -420,7 +421,7 @@ class OfflineCvPMatchScene(GameScene):
         self.quit_button.destroy()
         self.menu_button.destroy()
 
-        self.base.ignore("mouse1")
-        self.base.ignore("mouse1-up")
+        self.app.ignore("mouse1")
+        self.app.ignore("mouse1-up")
 
-        self.base.taskMgr.remove("GameStepTask")
+        self.app.taskMgr.remove("GameStepTask")
