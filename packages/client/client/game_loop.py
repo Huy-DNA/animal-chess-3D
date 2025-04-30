@@ -1,14 +1,14 @@
-from direct.showbase.ShowBase import ShowBase
-from direct.task import Task
-from panda3d.core import WindowProperties
-
+from direct.task.Task import Task
 from ui.menu_scene import MenuScene
 from ui.constants import SCREEN_WIDTH, SCREEN_HEIGHT
+
+from direct.showbase.ShowBase import ShowBase
+from panda3d.core import WindowProperties
 
 
 class GameLoop(ShowBase):
     def __init__(self):
-        ShowBase.__init__(self)
+        super().__init__()
 
         props = WindowProperties()
         props.setSize(SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -16,11 +16,10 @@ class GameLoop(ShowBase):
         self.win.requestProperties(props)
 
         self.disableMouse()
-
         self.setFrameRateMeter(True)
-        self.clock = self.globalClock
-        self.clock.setMode(self.clock.MLimited)
-        self.clock.setFrameRate(60)
+
+        globalClock.setMode(globalClock.MLimited)
+        globalClock.setFrameRate(60)
 
         self.current_scene = None
         self.next_scene = None
