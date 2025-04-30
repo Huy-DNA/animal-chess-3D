@@ -33,8 +33,8 @@ class MenuScene(GameScene):
         self.ui_elements.append(self.title)
 
         button_width = 400
-        button_height = 60
-        button_spacing = 20
+        button_height = 250
+        button_spacing = 1
         start_y = SCREEN_HEIGHT // 2 - 100
 
         buttons_info = [
