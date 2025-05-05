@@ -27,6 +27,7 @@ from ui.constants import (
     BOARD_ROWS,
     CHECKPOINT_PATH,
     ASSETS_PATH,
+    CELL_SIZE
 )
 from core.game import Game, Piece
 
@@ -92,11 +93,9 @@ class OfflineCvPMatchScene(GameScene):
         self.app.setBackgroundColor(0.5, 0.8, 1.0)
 
         self.app.disableMouse()
-        row_size = 7
-        board_size = 9 
-        cell_size = 2
-        center_x = (row_size - 1) * cell_size / 2
-        center_y = (board_size - 1) * cell_size / 2
+
+        center_x = (BOARD_COLS - 1) * CELL_SIZE / 2
+        center_y = (BOARD_ROWS - 1) * CELL_SIZE / 2
 
         self.app.camera.setPos(center_x, center_y - 20, 20)  # Ra xa theo trục Y, cao lên trục Z
         self.app.camera.lookAt(center_x, center_y, 0)        # Nhìn vào tâm bàn cờ
@@ -495,18 +494,16 @@ class OfflineCvPMatchScene(GameScene):
         self.tile_nodes = {}
         card_maker = CardMaker('card')
         card_maker.setFrame(-1, 1, -1, 1)
-        board_size = 9
-        row_size = 7
-        cell_size = 2
+        
         # Lặp qua các ô bàn cờ
-        for row in range(board_size):
-            for col in range(row_size):
+        for row in range(BOARD_ROWS):
+            for col in range(BOARD_COLS):
                 # card = self.board_root.attachNewNode(card_maker.generate())
                 # card.setPos(Vec3(col * cell_size, row * cell_size, 0))  # Xếp theo X–Y, nằm trên Z = 0
                 # card.setHpr(0, -90, 0)  # Xoay để mặt card nằm ngang (từ XY xuống XZ)
                 # card.setTag("type", "tile")
                 card = self.board_root.attachNewNode(card_maker.generate())
-                card.setPos(col * cell_size, row * cell_size, 0)
+                card.setPos(col * CELL_SIZE, row * CELL_SIZE, 0)
                 card.setHpr(0, -90, 0)
                 card.setTag("type", "tile")
                 card.setTag("col", str(col))
@@ -524,10 +521,20 @@ class OfflineCvPMatchScene(GameScene):
                 # tile_coll.setTag("tileCollider", f"{col},{row}")
                 if (col, row) in RIVER_POSITIONS:
                     card.setColor(0.2, 0.4, 1.0, 1)  # xanh nước
+                elif (col, row) in {(2, 0), (3, 1), (4, 0)}:
+                    card.setColor(1, 0.6, 0.6, 1)
+                # Bẫrow BLUE
+                elif (col, row) in {(2, 8), (3, 7), (4, 8)}:
+                    card.setColor(0.6, 0.6, 1, 1)
+                elif (col, row) == (3, 0):
+                    card.setColor(0.5,0.5,0.5)
+                # Hang BLUE
+                elif (col, row) == (3, 8):
+                    card.setColor(0.5,0.5,0.5)
                 elif (row + col) % 2 == 0:
-                    texture = self.create_color_texture(0.8, 0.8, 0.8)
+                    texture = self.create_color_texture(0.6, 0.85, 0.95)
                 else:
-                    texture = self.create_color_texture(0.6, 0.6, 0.6)
+                    texture = self.create_color_texture(0.3, 0.6, 0.8)
 
                 if texture:
                     card.setTexture(texture)
