@@ -8,6 +8,7 @@ import functools
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.DirectButton import DirectButton
 from direct.gui.OnscreenText import OnscreenText
+from direct.gui.OnscreenImage import OnscreenImage
 from direct.task import Task
 from panda3d.core import TextNode, TransparencyAttrib, Point3, CardMaker
 from panda3d.core import PNMImage, Texture, NodePath
@@ -58,6 +59,7 @@ class OfflineCvPMatchScene(GameScene):
         self.piece_nodes = {}
         self.tile_nodes = {}
         self.next_scene = None
+        self.piece_labels: dict[Piece, NodePath] = {}
 
         self.status_message = ""
 
@@ -101,8 +103,47 @@ class OfflineCvPMatchScene(GameScene):
         self.app.camera.lookAt(center_x, center_y, 0)        # Nhìn vào tâm bàn cờ
         # self.app.camera.setPos(BOARD_COLS / 2, -10, BOARD_ROWS / 2 + 2)
         # self.app.camera.lookAt(BOARD_COLS / 2, 0, BOARD_ROWS / 2)
+        # 1) Tạo OnscreenImage full‑screen
+        # 1) build path
+        # 1) Load PNMImage từ file
+        bg_file = Filename.fromOsSpecific(os.path.join(ASSETS_PATH, "forest-bg-3d.png"))
+        img = PNMImage()
+        if not img.read(bg_file):
+            print(f"[ERROR] Không load được ảnh nền: {bg_file}")
+            return
+        bg_tex = Texture()
+        bg_tex.load(img)
 
         self.board_root = self.app.render.attachNewNode("board_root")
+
+        
+        cm = CardMaker("bg_card")
+    # Frame này là toạ độ local của card: (-1..1) trên cả hai trục
+        cm.setFrame(-1, 1, -1, 1)
+        bg_np = self.board_root.attachNewNode(cm.generate())
+
+        # 2b) Đổi thành kích thước phù hợp world‑space:
+        # Ví dụ: bàn cờ rộng BOARD_COLS*CELL_SIZE, dài BOARD_ROWS*CELL_SIZE
+        width  = BOARD_COLS * CELL_SIZE
+        height = BOARD_ROWS * CELL_SIZE
+        bg_np.setScale(width/2, 1, height/2)
+
+        # 2c) Đặt tấm phẳng "đằng sau" bàn cờ:
+        #    - Tọa độ X,Y nằm cùng center bàn
+        #    - Z (height) = một chút dương để tránh z-fighting
+        center_x = (BOARD_COLS - 1) * CELL_SIZE / 2
+        center_y = (BOARD_ROWS - 1) * CELL_SIZE / 2
+        bg_np.setPos(center_x, center_y + 1, height/2)   # đặt Y sau bàn
+        #  Xoay để nó hướng vào camera (CardMaker sinh ra trên mặt XZ, quay 90° về phía Y)
+        bg_np.setHpr(0, 90, 0)
+
+        # 2d) Gán texture và bin
+        bg_np.setTexture(bg_tex)
+        bg_np.setTransparency(TransparencyAttrib.MAlpha)
+        # Đặt vào bin "background" của camera 3D, depth‑write off
+        bg_np.setBin("background", 0)
+        bg_np.setDepthWrite(False)
+        bg_np.setDepthTest(False)
 
         self.load_textures()
 
@@ -138,11 +179,21 @@ class OfflineCvPMatchScene(GameScene):
 
         self.app.taskMgr.add(self.update_camera, "CameraUpdateTask")
         # self.app.taskMgr.add(self.drag_task, "dragTask")
+        self.clear_status_task = None        
 
-
-        # box = self.app.loader.loadModel("models/box")
-        # box.reparentTo(self.app.render)
-        # box.setPos(BOARD_COLS / 2, 0, BOARD_ROWS / 2)
+    def show_temporary_message(self, msg: str, duration: float = 3.0):
+        # 1) cập nhật text ngay
+        self.status_text.setText(msg)
+        # 2) hủy task clear cũ (nếu vẫn đang chờ)
+        if self.clear_status_task is not None:
+            self.app.taskMgr.remove(self.clear_status_task)
+        # 3) đăng ký task mới clear sau `duration` giây
+        def _clear(task):
+            self.status_text.setText("") 
+            return Task.done
+        # lưu tên task để có thể hủy nếu show lại nhanh
+        self.clear_status_task = f"clear_status_{id(self)}"
+        self.app.taskMgr.doMethodLater(duration, _clear, self.clear_status_task)
 
     def update_camera(self, task):
         if self.app.mouseWatcherNode.hasMouse():
@@ -164,44 +215,7 @@ class OfflineCvPMatchScene(GameScene):
         self.app.camera.lookAt(center)
         return Task.cont
     
-    def spawn_pieces(self):
-        # # Tạo piece_node cho mỗi Piece trong state ban đầu
-        # self.piece_nodes.clear()
-        # self.tag_to_piece.clear()
-        # # state = self.game.get_state()
-        # # for piece in state.get_all_pieces():
-        # #     self.create_piece_node(piece)
-        # for i, piece in enumerate(self.game.get_state().get_all_pieces()):
-        #     piece_np = self.create_piece_node(piece)
-        #     # đánh tag trực tiếp lên NodePath mẹ
-        #     piece_np.setTag("piece_id", str(i))
-        #     self.tag_to_piece[str(i)] = piece
-        #     self.piece_nodes[piece] = piece_np
-        # self.piece_nodes.clear()
-        # self.tag_to_piece.clear()
-
-        # for i, piece in enumerate(self.game.get_state().get_all_pieces()):
-        #     proto = self.prototypes.get(piece.type)
-        #     if proto is None:
-        #         continue
-        #     piece_np = proto.copyTo(self.board_root)
-        #     piece_np.setName(f"piece_{i}")
-        #     piece_np.setTag("piece_id", str(i))
-        #     self.tag_to_piece[str(i)] = piece
-
-        #     # Đặt đúng vị trí trên bàn
-        #     pos = self.game.get_state().get_piece_position(piece)
-        #     piece_np.setPos(pos.x * 2, pos.y * 2, 1)
-
-        #     # *** TẠO CollisionBox ngay từ tight bounds ***
-        #     minb, maxb = piece_np.getTightBounds()
-        #     box = CollisionBox(minb, maxb)
-        #     cn = CollisionNode("modelCollider")
-        #     cn.addSolid(box)
-        #     cn.setIntoCollideMask(BitMask32.bit(1))
-        #     piece_np.attachNewNode(cn)
-
-        #     self.piece_nodes[piece] = piece_np
+    def spawn_pieces(self):        
         colors = {
             PieceType.LION: (1.0, 0.8, 0.0, 1),     # vàng
             PieceType.TIGER: (1.0, 0.5, 0.0, 1),    # cam
@@ -212,6 +226,7 @@ class OfflineCvPMatchScene(GameScene):
             PieceType.WOLF: (0.5, 0.5, 0.5, 1),
             PieceType.LEOPARD: (1.0, 1.0, 0.0, 1),
         }
+        self.piece_labels.clear()
         self.piece_nodes.clear()
         for piece in self.game.get_state().get_all_pieces():
             proto = self.prototypes[piece.type]
@@ -226,123 +241,21 @@ class OfflineCvPMatchScene(GameScene):
             else:
                 node.setColorScale(0.6, 0.6, 1, 1)  # xanh nhạt
             self.piece_nodes[piece] = node
+
+             # --- tạo label cho level ---
+            tn = TextNode(f"lvl_{piece.type.name}_{piece.color.name}")
+            tn.setText(str(self.game.get_current_level(piece)))
+            tn.setAlign(TextNode.ACenter)
+            tn.setTextColor(1,1,1,1)
+            label_np = node.attachNewNode(tn)
+            label_np.setScale(1.0)                # chỉnh to nhỏ tuỳ ý
+            label_np.setBillboardAxis()           # luôn hướng về camera
+            # đặt label nằm ngay trên đầu model:
+            # giả sử model cao khoảng 1.0, bạn có thể điều chỉnh offset
+            label_np.setPos(0, 0, 1.5)
+            self.piece_labels[piece] = label_np
                 
-    def load_textures(self):
-        # name_to_type = {
-        #     "elephant": PieceType.ELEPHANT,
-        #     "lion": PieceType.LION,
-        #     "tiger": PieceType.TIGER,
-        #     "leopard": PieceType.LEOPARD,
-        #     "dog": PieceType.DOG,
-        #     "wolf": PieceType.WOLF,
-        #     "cat": PieceType.CAT,
-        #     "mouse": PieceType.MOUSE,
-        # }
-
-        # for name in os.listdir(ASSETS_PATH):
-        #     if name.endswith(".png") and name not in [
-        #         "trap-image.png",
-        #         "board-image.png",
-        #         "forest-bg.png",
-        #         "board-bg.png",
-        #         "cave-image.png",
-        #         "river-image.png",
-        #     ]:
-        #         texture = self.app.loader.loadTexture(os.path.join(ASSETS_PATH, name))
-        #         key = name_to_type[name.replace("-image.png", "")]
-        #         self.textures[key] = texture
-
-        # self.textures["trap"] = self.app.loader.loadTexture(
-        #     os.path.join(ASSETS_PATH, "trap-image.png")
-        # )
-        # self.textures["cave"] = self.app.loader.loadTexture(
-        #     os.path.join(ASSETS_PATH, "cave-image.png")
-        # )
-        # self.textures["river"] = (
-        #     self.app.loader.loadTexture(os.path.join(ASSETS_PATH, "river-image.png"))
-        #     if os.path.exists(os.path.join(ASSETS_PATH, "river-image.png"))
-        #     else None
-        # )
-        # self.textures["normal_tile"] = self.create_color_texture(0.96, 0.87, 0.7)
-        # self.textures["river_tile"] = self.create_color_texture(0, 0.59, 1.0)
-        # name_to_type = {
-        #     "elephant": PieceType.ELEPHANT,
-        #     "lion": PieceType.LION,
-        #     "tiger": PieceType.TIGER,
-        #     "leopard": PieceType.LEOPARD,
-        #     "dog": PieceType.DOG,
-        #     "wolf": PieceType.WOLF,
-        #     "cat": PieceType.CAT,
-        #     "mouse": PieceType.MOUSE,
-        # }
-        
-
-        # # Cập nhật danh sách vị trí con thú
-        # # Bạn có thể thay thế các tọa độ này bằng các tọa độ phù hợp với bàn cờ cờ thú
-        # piece_positions = {
-        #     'elephant': (0, 0),  # Hàng 1, Cột 1
-        #     'lion': (1, 0),      # Hàng 1, Cột 2
-        #     'tiger': (2, 0),     # Hàng 1, Cột 3
-        #     'leopard': (3, 0),   # Hàng 1, Cột 4
-        #     'dog': (4, 0),       # Hàng 2, Cột 1
-        #     'wolf': (5, 0),      # Hàng 2, Cột 2
-        #     'cat': (6, 0),       # Hàng 2, Cột 3
-        #     'mouse': (7, 0),     # Hàng 3, Cột 1
-        # }
-        # self.models = {}
-        # for name, piece_type in name_to_type.items():
-        #     model_filename = f"{name}.egg"
-        #     raw_path = os.path.join(ASSETS_PATH, model_filename)
-            
-        #     # Chuyển path đúng cho loadModel (có thể chứa dấu cách, unicode, ...)
-        #     model_path = Filename.fromOsSpecific(raw_path).getFullpath()
-            
-        #     if os.path.exists(raw_path):  # dùng đường dẫn hệ thống để kiểm tra tồn tại
-        #         try:
-        #             model = self.app.loader.loadModel(model_path)
-        #             model.setScale(0.4)
-        #             model.setHpr(180, 0, 0)  # Xoay nếu cần
-        #             position = piece_positions[name]  # Lấy vị trí từ dictionary
-        #             x, y = position
-        #             model.setPos(x * 2, y * 2, 1)  # Điều chỉnh vị trí theo hệ tọa độ bàn cờ
-        #             # model.reparentTo(self.app.render)
-        #             # model.setTag("modelCollider", "1")
-        #             # # Gắn collider để bắt click
-        #             # bounds = model.getTightBounds()
-        #             # center = (bounds[0] + bounds[1]) / 2
-        #             # radius = (bounds[1] - bounds[0]).length() / 2
-
-        #             # # col_sphere = CollisionSphere(center, radius)
-        #             # col_sphere = CollisionSphere(0, 0, 1, 1.2)
-        #             # col_node = CollisionNode('modelCollider')
-        #             # col_node.addSolid(col_sphere)
-        #             # col_node.set_into_collide_mask(BitMask32.bit(1))
-
-        #             # model.attach_new_node(col_node)
-                    
-        #             # self.models[piece_type] = model
-        #             piece_node = self.app.render.attachNewNode(f"piece_{name}")
-        #             model.reparentTo(piece_node)  # Gắn model vào node mẹ để dễ kéo
-        #             model.setPos(0, 0, 0)
-        #             model.setScale(0.4)
-        #             model.setHpr(180, 0, 0)
-
-        #             # Collider nằm trên piece_node, KHÔNG phải model!
-        #             col_sphere = CollisionSphere(0, 0, 1, 1.2)
-        #             col_node = CollisionNode('modelCollider')
-        #             col_node.addSolid(col_sphere)
-        #             col_node.set_into_collide_mask(BitMask32.bit(1))
-
-        #             piece_node.attachNewNode(col_node)
-        #             piece_node.setTag("modelCollider", "1")
-
-        #             piece_node.setPos(x * 2, y * 2, 1)
-        #             self.models[piece_type] = piece_node  # lưu cả node để dễ điều khiển
-        #             print(f"[OK] Loaded model: {model_filename}")
-        #         except Exception as e:
-        #             print(f"[ERROR] Không load được model {name}: {e}")
-        #     else:
-        #         print(f"[WARN] Không tìm thấy file: {raw_path}")
+    def load_textures(self):        
         name_to_type = {
             "elephant": PieceType.ELEPHANT,
             "lion":     PieceType.LION,
@@ -440,51 +353,7 @@ class OfflineCvPMatchScene(GameScene):
             return intersection
         return None
 
-    def create_board(self):
-        # state = self.game.get_state()
-        # game_map = state.get_map()
-
-        # for row in range(BOARD_ROWS):
-        #     for col in range(BOARD_COLS):
-        #         tile_pos = Position(col, row)
-
-        #         cm = CardMaker(f"tile_{col}_{row}")
-        #         cm.setFrame(0, 1, 0, 1)
-        #         tile_node = self.board_root.attachNewNode(cm.generate())
-        #         tile_node.setPos(col, 0, row)
-        #         tile_node.setP(-90)
-
-        #         # Add collision solid for mouse picking
-        #         cn = CollisionNode(f"tile_collision_{col}_{row}")
-        #         cm.setFrame(0, 1, 0, 1)
-        #         cn_np = tile_node.attachNewNode(cn)
-
-        #         self.tile_nodes[tile_pos] = tile_node
-
-        #         if self.is_river(tile_pos):
-        #             tile_node.setTexture(self.textures["river_tile"])
-        #         else:
-        #             tile_node.setTexture(self.textures["normal_tile"])
-
-        #         if self.is_trap(tile_pos):
-        #             trap_overlay = self.board_root.attachNewNode(cm.generate())
-        #             trap_overlay.setPos(col, 0.01, row)
-        #             trap_overlay.setP(-90)
-        #             trap_overlay.setTexture(self.textures["trap"])
-        #             trap_overlay.setTransparency(TransparencyAttrib.MAlpha)
-
-        #         if self.is_cave(tile_pos):
-        #             cave_overlay = self.board_root.attachNewNode(cm.generate())
-        #             cave_overlay.setPos(col, 0.01, row)
-        #             cave_overlay.setP(-90)
-        #             cave_overlay.setTexture(self.textures["cave"])
-        #             cave_overlay.setTransparency(TransparencyAttrib.MAlpha)
-
-        # for y in range(game_map.height()):
-        #     for x in range(game_map.width()):
-        #         piece = state.get_piece_at_position(Position(x, y))
-        #         if piece:
-        #             self.create_piece_node(piece)
+    def create_board(self):        
         # Tạo CardMaker để vẽ các ô
         RIVER_POSITIONS = {
             (1, 3), (2, 3), (4, 3), (5, 3),
@@ -539,41 +408,7 @@ class OfflineCvPMatchScene(GameScene):
                 if texture:
                     card.setTexture(texture)
 
-    def create_color_texture(self, r, g, b):
-        # card_maker = CardMaker('color_card')
-        # card_maker.setFrame(-1, 1, -1, 1)
-        # color_card = card_maker.generate()
-        # texture = self.app.loader.loadTexture('color.png')
-        # color_card.setColor(r, g, b, 1)  # Đặt màu cho ô
-        # return texture
-        # Create a CardMaker to make a square
-        # Create a CardMaker to make a square
-        # Create a CardMaker to make a square
-        # Create a CardMaker to make a square
-        # Create a CardMaker to make a square
-        # card_maker = CardMaker('card')
-        # card_maker.setFrame(-1, 1, -1, 1)  # Square from (-1, -1) to (1, 1)
-
-        # # Create the card (square)
-        # card = card_maker.generate()
-
-        # # Create the texture
-        # texture = Texture()
-        # texture.setup2dTexture(2, 2, Texture.T_unsigned_byte, Texture.F_rgb8)
-
-        # # Create the pixel data (2x2 texture)
-        # tex_data = bytearray()
-        # # Add 4 pixels (2x2) with the RGB values
-        # for _ in range(4):
-        #     tex_data.extend([int(r * 255), int(g * 255), int(b * 255)])  # RGB values in range [0, 255]
-
-        # # Set the texture data (ensure it is in the correct format)
-        # texture.setRamImageAs(bytes(tex_data), Texture.F_rgb8)
-
-        # # Apply the texture to the card (you might want to do this elsewhere in your game logic)
-        # card.setTexture(texture)
-
-        # return texture
+    def create_color_texture(self, r, g, b):        
         texture = Texture()
         texture.setup2dTexture(2, 2, Texture.T_unsigned_byte, Texture.F_rgb8)
 
@@ -592,39 +427,7 @@ class OfflineCvPMatchScene(GameScene):
         texture.setRamImage(pixel_data)
 
         return texture
-    def create_piece_node(self, piece: Piece):
-        # state = self.game.get_state()
-        # position = state.get_piece_position(piece)
-        # if not position:
-        #     return
-
-        # cm = CardMaker(f"piece_{piece}")
-        # cm.setFrame(-0.45, 0.45, -0.45, 0.45)
-
-        # piece_node = self.board_root.attachNewNode(cm.generate())
-        # piece_node.setPos(position.x, 0.1, position.y)
-        # piece_node.setP(-90)
-
-        # # Add collision for piece
-        # cn = CollisionNode(f"piece_collision_{piece}")
-        # cm.setFrame(-0.45, 0.45, -0.45, 0.45)
-        # cn_np = piece_node.attachNewNode(cn)
-
-        # piece_node.setTexture(self.textures[piece.type])
-        # piece_node.setTransparency(TransparencyAttrib.MAlpha)
-
-        # border_color = (1, 0, 0, 1) if piece.color == Color.RED else (0, 0, 1, 1)
-        # self.create_piece_border(piece_node, border_color)
-
-        # self.piece_nodes[piece] = piece_node
-
-        # model = self.models.get(piece.type)
-        # if model:
-        #     piece_node = self.board_root.attachNewNode(f"piece_{piece}")
-        #     model_instance = model.copyTo(piece_node)
-        #     model_instance.setPos(0, 0, 0)  # hoặc căn giữa
-        #     model_instance.setScale(0.4)
-         # Lấy NodePath gốc đã load trong load_textures (có sẵn collider)
+    def create_piece_node(self, piece: Piece):        
        # 1) Copy model (đã scale sẵn) vào board
         model_np = self.models[piece.type]
         piece_np = model_np.copyTo(self.board_root)
@@ -695,146 +498,7 @@ class OfflineCvPMatchScene(GameScene):
         self.app.accept("mouse1", self.on_mouse_down)
         # self.app.accept("mouse1-up", self.on_mouse_up)
 
-    def on_mouse_down(self):
-        # if self.game_over or self.game.get_turn() == Color.BLUE:
-        #     return
-
-        # if not self.app.mouseWatcherNode.hasMouse():
-        #     return
-
-        # mouse_pos = self.app.mouseWatcherNode.getMouse()
-
-        # self.picker_ray.setFromLens(self.app.camNode, mouse_pos.getX(), mouse_pos.getY())
-        # self.picker.traverse(self.app.render)
-
-        # if self.pq.getNumEntries() > 0:
-        #     self.pq.sortEntries()
-        #     picked_obj = self.pq.getEntry(0).getIntoNodePath()
-        #     print("[CLICK] Mouse down at:", picked_obj)
-
-        #     for piece, node in self.piece_nodes.items():
-        #         if picked_obj.isAncestorOf(node) or node.isAncestorOf(picked_obj):
-        #             current_state = self.game.get_state()
-        #             for game_piece in current_state.get_all_pieces():
-        #                 if (
-        #                     game_piece == piece
-        #                     and game_piece.color == self.game.get_turn()
-        #                 ):
-        #                     self.selected_piece = game_piece
-        #                     self.dragging = True
-        #                     self.drag_piece_node = node
-        #                     return
-        # else:
-        #     print("[DEBUG] Không va chạm nào được phát hiện.")
-        # if self.app.mouseWatcherNode.hasMouse():
-        #     mpos = self.app.mouseWatcherNode.getMouse()
-        #     self.picker_ray.setFromLens(self.app.camNode, mpos.getX(), mpos.getY())
-        #     self.picker.traverse(self.app.render)
-        #     if self.pq.getNumEntries() > 0:
-        #         self.pq.sortEntries()
-        #         entry = self.pq.getEntry(0)
-        #         picked_node = entry.getIntoNodePath().findNetTag("modelCollider")
-        #         if not picked_node.isEmpty():
-        #             self.selected_piece = picked_node.getParent()
-        #             print(f"Picked: {self.selected_piece}")
-        # if not self.app.mouseWatcherNode.hasMouse():
-        #     return
-        # mpos = self.app.mouseWatcherNode.getMouse()
-
-        # # A) Select piece (nếu chưa có)
-        # if self.selected_piece is None:
-        #     self.picker_ray.setFromLens(self.app.camNode, mpos.getX(), mpos.getY())
-        #     self.picker.traverse(self.app.render)
-        #     if self.pq.getNumEntries() == 0:
-        #         return
-        #     self.pq.sortEntries()
-        #     picked = self.pq.getEntry(0).getIntoNodePath()
-        #     print(f"[DEBUG] piece_nodes count = {len(self.piece_nodes)}")
-        #     for piece, node in self.piece_nodes.items():
-        #         if picked.isAncestorOf(node) or node.isAncestorOf(picked):
-        #             print(f"[DEBUG] picked IS ancestorOf node {node.getName()}")
-        #             if piece.color != self.game.get_turn():
-        #                 print(f"[BLOCKED] Không phải lượt của {piece.color}")
-        #                 return
-        #             self.selected_piece = piece
-        #             node.setColorScale(1,1,0,1)  # highlight vàng
-        #             print(f"[SELECTED] {piece.type.name} tại {self.game.get_state().get_piece_position(piece)}")
-        #             return
-
-        # # B) Move piece (nếu đã select)
-        # else:
-        #     world_pos = self.get_mouse_plane_intersection(mpos)
-        #     if not world_pos:
-        #         return
-        #     col = int(round(world_pos.getX() / 2))
-        #     row = int(round(world_pos.getY() / 2))
-        #     if 0 <= col < BOARD_COLS and 0 <= row < BOARD_ROWS:
-        #         dest = Position(col, row)
-        #         moved = self.game.move(self.selected_piece, dest)
-        #         print(f"[MOVE] {self.selected_piece.type.name} -> {dest} : {'OK' if moved else 'INVALID'}")
-        #         self.update_board_state()
-        #     else:
-        #         print("[OUT] Ngoài bàn")
-        #     # Xóa highlight và reset chọn
-        #     self.piece_nodes[self.selected_piece].clearColorScale()
-        #     self.selected_piece = NoneC
-         
-        # if not self.app.mouseWatcherNode.hasMouse(): return
-        # mpos = self.app.mouseWatcherNode.getMouse()
-        # print(f"[DEBUG] mouse pos: {mpos}")
-        # # A) nếu chưa select piece → thử select
-        # if self.selected_piece is None:
-        #     self.picker_ray.setFromLens(self.app.camNode, mpos.getX(), mpos.getY())
-        #     self.picker.traverse(self.app.render)
-        #     if self.pq.getNumEntries() == 0: return
-        #     self.pq.sortEntries()
-        #     picked = self.pq.getEntry(0).getIntoNodePath()
-        #     print(f"[DEBUG] ray hit node: {picked.getName()}")
-        #     for piece, node in self.piece_nodes.items():
-        #         if picked.isAncestorOf(node) or node.isAncestorOf(picked):
-        #             if piece.color != self.game.get_turn():
-        #                 print("❌ Không phải lượt của bạn")
-        #                 return
-        #             self.selected_piece = piece
-        #             # highlight piece
-        #             node.setColorScale(1,1,0,1)
-        #             # highlight ô đích
-        #             self.valid_destinations = {
-        #                 cell.position for cell in self.game.get_possible_moves(piece)
-        #             }
-        #             self.highlighted_tiles = []
-        #             for dest in self.valid_destinations:
-        #                 tn = self.tile_nodes.get(dest)
-        #                 if tn:
-        #                     tn.setColorScale(0,1,1,0.5)
-        #                     self.highlighted_tiles.append(tn)
-        #             print(f"[SELECTED] {piece.type.name} tại {self.game.get_state().get_piece_position(piece)}")
-        #             return
-
-        # # B) nếu đã select piece → move theo click
-        # else:
-        #     world_pos = self.get_mouse_plane_intersection(mpos)
-        #     if not world_pos: return
-        #     col = int(round(world_pos.getX() / 2))
-        #     row = int(round(world_pos.getY() / 2))
-        #     dest = Position(col, row)
-
-        #     if dest in getattr(self, "valid_destinations", ()):
-        #         self.game.move(self.selected_piece, dest)
-        #         print(f"[MOVE] {self.selected_piece.type.name} → {dest}")
-        #     else:
-        #         print("⛔ Ô không hợp lệ")
-
-        #     # cập nhật vị trí model
-        #     self.update_board_state()
-
-        #     # xóa highlight piece và tiles
-        #     self.piece_nodes[self.selected_piece].clearColorScale()
-        #     for tn in getattr(self, "highlighted_tiles", []):
-        #         tn.clearColorScale()
-        #     self.highlighted_tiles = []
-        #     self.valid_destinations = set()
-        #     self.selected_piece = None
+    def on_mouse_down(self):        
         # 1) Bỏ qua nếu không có chuột
         if not self.app.mouseWatcherNode.hasMouse():
             return
@@ -880,9 +544,28 @@ class OfflineCvPMatchScene(GameScene):
         # B) Nếu đã chọn piece, click lên ô sẽ là cố gắng di chuyển
         else:
             if clicked_pos in getattr(self, "valid_destinations", ()):
+                # ok = self.game.move(self.selected_piece, clicked_pos)
+                # print(f"[MOVE] {self.selected_piece.type.name} → {clicked_pos} : {'OK' if ok else 'INVALID'}")
+                # self.update_board_state()
+                # ghi nhớ level trước move
+                old_lvl = self.game.get_current_level(self.selected_piece)
+
                 ok = self.game.move(self.selected_piece, clicked_pos)
-                print(f"[MOVE] {self.selected_piece.type.name} → {clicked_pos} : {'OK' if ok else 'INVALID'}")
                 self.update_board_state()
+
+                # sau move, lấy level mới
+                new_lvl = self.game.get_current_level(self.selected_piece)
+                if ok and new_lvl > old_lvl:
+                    # thông báo lên UI
+                    msg = f"{self.selected_piece.type.name} được tăng cấp lên {new_lvl}!"
+                    self.status_text.setText(msg)
+                    self.show_temporary_message(
+                        f"[UPGRADE] {self.selected_piece.type.name} của {self.selected_piece.color.name} lên cấp {new_lvl}",
+                        duration=3.0
+                    )                    
+                else:
+                    # xoá thông báo (hoặc hiển thị bình thường)
+                    self.status_text.setText("")
             else:
                 print("⛔ Ô không hợp lệ")
 
@@ -892,30 +575,7 @@ class OfflineCvPMatchScene(GameScene):
                 tn.clearColorScale()
             self.selected_piece = None
             self.valid_destinations = set()
-            self.highlighted_tiles = []
-        # def _attempt_move(self, mpos):
-        #     world_pos = self.get_mouse_plane_intersection(mpos)
-        #     if not world_pos:
-        #         return
-        #     col = int(round(world_pos.getX() / 2))
-        #     row = int(round(world_pos.getY() / 2))
-        #     dest = Position(col, row)
-
-        #     if dest in self.valid_destinations:
-        #         ok = self.game.move(self.selected_piece, dest)
-        #         print(f"[MOVE] {self.selected_piece.type.name} → {dest} : {'OK' if ok else 'INVALID'}")
-        #         self.update_board_state()
-        #     else:
-        #         print("⛔ Ô không hợp lệ")
-
-        #     # clear highlight
-        #     node = self.piece_nodes[self.selected_piece]
-        #     node.clearColorScale()
-        #     for tn in self.highlighted_tiles:
-        #         tn.clearColorScale()
-        #     self.highlighted_tiles = []
-        #     self.valid_destinations = set()
-        #     self.selected_piece = None
+            self.highlighted_tiles = []        
 
 
 
@@ -945,35 +605,21 @@ class OfflineCvPMatchScene(GameScene):
         self.drag_piece_node = None
         self.dragging = False
 
-    def update_board_state(self):
-        # state = self.game.get_state()
-        # for piece, node in self.piece_nodes.items():
-        #     pos = state.get_piece_position(piece)
-        #     node.setPos(pos.x * 2, pos.y * 2, 1)
-
-        # for piece_id in list(self.piece_nodes.keys()):
-        #     found = False
-        #     for piece in state.get_all_pieces():
-        #         if piece == piece_id:
-        #             found = True
-        #             break
-
-        #     if not found:
-        #         self.piece_nodes[piece_id].removeNode()
-        #         del self.piece_nodes[piece_id]
-
-        # turn_color = (1, 0, 0, 1) if self.game.get_turn() == Color.RED else (0, 0, 1, 1)
-        # turn_text = f"{self.game.get_turn().to_string().upper()}'S TURN"
-        # self.turn_text.setText(turn_text)
-        # self.turn_text.setFg(turn_color)
+    def update_board_state(self):        
         state = self.game.get_state()
         for piece, node in list(self.piece_nodes.items()):
             pos = state.get_piece_position(piece)
             if pos is None:
                 node.removeNode()
                 del self.piece_nodes[piece]
+                self.piece_labels[piece].removeNode()
+                del self.piece_labels[piece]
             else:
                 node.setPos(pos.x * 2, pos.y * 2, 1)
+                # cập nhật label vị trí (nếu không dùng attach thì cần setPos label tương tự)
+                label_np = self.piece_labels[piece]
+                # nếu label là child của node, nó đã tự theo node nên chỉ cần đổi text
+                label_np.node().setText(str(self.game.get_current_level(piece)))
 
         # Cập nhật text lượt
         turn_color = (1, 0, 0, 1) if self.game.get_turn() == Color.RED else (0, 0, 1, 1)
