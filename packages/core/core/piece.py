@@ -62,7 +62,7 @@ class Color(Enum):
 @dataclass(frozen=True)
 class Piece:
     color: Color
-    type: PieceType
+    type: PieceType    
 
     def can_cross_river(self) -> bool:
         return self.type == PieceType.MOUSE

@@ -9,6 +9,14 @@ class Game:
 
     def __init__(self):
         self.__state = State()
+        self.level_bonus: dict[Piece, int] = {
+            p: 0 for p in self.__state.get_all_pieces()
+        }
+        # mỗi bên chỉ được nâng tối đa 3 lần
+        self.upgrades_by_color: dict[Color, int] = {
+            Color.RED: 0,
+            Color.BLUE: 0,
+        }
 
     def get_possible_moves(self, piece: Piece) -> List[Cell]:
         pos = self.__state.get_piece_position(piece)
@@ -50,9 +58,11 @@ class Game:
                 continue
             elif piece.type == PieceType.ELEPHANT and adj_piece.type == PieceType.MOUSE:
                 continue
-            elif piece.get_default_level() >= adj_piece.get_default_level():
+            # elif piece.get_default_level() >= adj_piece.get_default_level():
+            #     not_blocked_by_other_pieces_cells.append(cell)
+            #     continue
+            elif self.get_current_level(piece) >= self.get_current_level(adj_piece):
                 not_blocked_by_other_pieces_cells.append(cell)
-                continue
 
         return not_blocked_by_other_pieces_cells
 
@@ -65,8 +75,23 @@ class Game:
             return False
 
         replaced_piece = self.__state.get_piece_at_position(position)
+        # if replaced_piece is not None:
+        #     self.__state.kill_piece(replaced_piece)
         if replaced_piece is not None:
-            self.__state.kill_piece(replaced_piece)
+            attacker = piece
+            defender = replaced_piece
+
+            attacker_level = self.get_current_level(attacker)
+            defender_level = self.get_current_level(defender)
+
+            self.__state.kill_piece(defender)
+
+            # ✅ Nếu ăn hợp lệ và chưa nâng quá 3 lần → tăng cấp
+            if attacker_level >= defender_level and self.upgrades_by_color[piece.color] < 3:
+                self.level_bonus[piece] += 1
+                self.upgrades_by_color[piece.color] += 1
+                print(f"[UPGRADE] {piece.type.name} của {piece.color.name} lên cấp {self.get_current_level(piece)}")
+        
         self.__state.set_piece_position(piece, position)
         self.__state.next_turn()
         return replaced_piece or True
@@ -87,3 +112,8 @@ class Game:
 
     def get_turn(self) -> Color:
         return self.__state.get_turn()
+    
+    def get_current_level(self, piece: Piece) -> int:
+        # default level + bonus
+        return piece.get_default_level().value + self.level_bonus.get(piece, 0)
+
