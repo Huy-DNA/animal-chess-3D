@@ -38,7 +38,7 @@ class MenuScene(GameScene):
 
         button_width = 400
         button_height = 300
-        button_spacing = -100
+        button_spacing = -220
         start_y = SCREEN_HEIGHT // 2 - 200
 
         buttons_info = [

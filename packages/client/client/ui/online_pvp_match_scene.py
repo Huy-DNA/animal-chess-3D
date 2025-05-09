@@ -19,6 +19,7 @@ from ui.game_scene import GameScene
 from core.map import Position
 from core.piece import Color, PieceType, Piece
 from core.game import Game
+from panda3d.core import Filename
 from client.controller.network import ServerConnector
 from ui.constants import (
     ASSETS_PATH,
@@ -63,13 +64,23 @@ class OnlinePvPMatchScene(GameScene):
         self.dragging = False
         self.drag_piece_node = None
 
+        self.tag_to_piece = {}
+        self.camera_angle = 0
+        self.camera_distance = 25  # khoảng cách camera với bàn cờ
+        self.selected_model = None
+
     def setup(self):
         self.app.setBackgroundColor(0.5, 0.8, 1.0)  # Light blue background
 
         # Set up camera
         self.app.disableMouse()
-        self.app.camera.setPos(BOARD_COLS / 2, -10, BOARD_ROWS / 2 + 2)
-        self.app.camera.lookAt(BOARD_COLS / 2, 0, BOARD_ROWS / 2)
+        # self.app.camera.setPos(BOARD_COLS / 2, -10, BOARD_ROWS / 2 + 2)
+        # self.app.camera.lookAt(BOARD_COLS / 2, 0, BOARD_ROWS / 2)
+        center_x = (BOARD_COLS - 1) * CELL_SIZE / 2
+        center_y = (BOARD_ROWS - 1) * CELL_SIZE / 2
+
+        self.app.camera.setPos(center_x, center_y - 20, 20)  # Ra xa theo trục Y, cao lên trục Z
+        self.app.camera.lookAt(center_x, center_y, 0)        # Nhìn vào tâm bàn cờ
         
         # Create board root node
         self.board_root = self.app.render.attachNewNode("board_root")
@@ -88,48 +99,87 @@ class OnlinePvPMatchScene(GameScene):
         
         # Set up key controls
         self.setup_keyboard()
+
+        # Set up for game3D
+        self.dragging = False
+        self.dragging_piece = None
+        self.offset_x = 0
+        self.offset_y = 0
+        self.picker    = CollisionTraverser()
+        self.pq        = CollisionHandlerQueue()
+        self.picker_ray= CollisionRay()
+        self.picker_node = CollisionNode("mouseRay")
+        self.picker_node.addSolid(self.picker_ray)
+        self.picker_node.set_from_collide_mask(BitMask32.bit(1))
+        self.picker_node.set_into_collide_mask(BitMask32.allOff())
+        self.picker_np = self.app.camera.attach_new_node(self.picker_node)
+        self.picker.addCollider(self.picker_np, self.pq)
+        self.app.accept("mouse1", self.on_mouse_down)
+        # self.app.accept("mouse1-up", self.on_mouse_up)
+        self.app.taskMgr.add(self.on_mouse_move, "MouseMoveTask")
+
+        # self.dragging_model = None
+        self.selected_model = None        
+
+        self.app.taskMgr.add(self.update_camera, "CameraUpdateTask")
+        # self.app.taskMgr.add(self.drag_task, "dragTask")
+        self.clear_status_task = None        
         
         # Add the game step task
         self.app.taskMgr.add(self.step, "OnlineGameStepTask")
 
+
+    def update_camera(self, task):
+        if self.app.mouseWatcherNode.hasMouse():
+            mouse = self.app.win.getPointer(0)
+            x = mouse.getX()
+            y = mouse.getY()
+
+            # Nếu bạn muốn thêm điều khiển bằng chuột kéo thì thêm sau
+            # Ở đây chỉ dùng các phím mũi tên để xoay camera
+
+        # self.camera_angle += globalClock.getDt() * 10  # tự xoay nhẹ
+        center = Point3(6, 6, 0)  # Tâm bàn cờ (tùy vào size)
+        angle_rad = math.radians(self.camera_angle)
+        x = center.getX() + self.camera_distance * math.sin(angle_rad)
+        y = center.getY() - self.camera_distance * math.cos(angle_rad)
+        z = 15
+
+        self.app.camera.setPos(x, y, z)
+        self.app.camera.lookAt(center)
+        return Task.cont
+    
     def load_textures(self):
         name_to_type = {
             "elephant": PieceType.ELEPHANT,
-            "lion": PieceType.LION,
-            "tiger": PieceType.TIGER,
-            "leopard": PieceType.LEOPARD,
-            "dog": PieceType.DOG,
-            "wolf": PieceType.WOLF,
-            "cat": PieceType.CAT,
-            "mouse": PieceType.MOUSE,
+            "lion":     PieceType.LION,
+            "tiger":    PieceType.TIGER,
+            "leopard":  PieceType.LEOPARD,
+            "dog":      PieceType.DOG,
+            "wolf":     PieceType.WOLF,
+            "cat":      PieceType.CAT,
+            "mouse":    PieceType.MOUSE,
         }
+        
+        self.prototypes = {}
+        
+        for name, piece_type in name_to_type.items():
+            raw_path = os.path.join(ASSETS_PATH, f"{name}.egg")
+            
+            if not os.path.exists(raw_path):
+                print(f"[WARN] Không tìm thấy file prototype: {raw_path}")
+                continue
 
-        for name in os.listdir(ASSETS_PATH):
-            if name.endswith(".png") and name not in [
-                "trap-image.png",
-                "board-image.png",
-                "forest-bg.png",
-                "board-bg.png",
-                "cave-image.png",
-                "river-image.png",
-            ]:
-                texture = self.app.loader.loadTexture(os.path.join(ASSETS_PATH, name))
-                key = name_to_type[name.replace("-image.png", "")]
-                self.textures[key] = texture
-
-        self.textures["trap"] = self.app.loader.loadTexture(
-            os.path.join(ASSETS_PATH, "trap-image.png")
-        )
-        self.textures["cave"] = self.app.loader.loadTexture(
-            os.path.join(ASSETS_PATH, "cave-image.png")
-        )
-        self.textures["river"] = (
-            self.app.loader.loadTexture(os.path.join(ASSETS_PATH, "river-image.png"))
-            if os.path.exists(os.path.join(ASSETS_PATH, "river-image.png"))
-            else None
-        )
-        self.textures["normal_tile"] = self.create_color_texture(0.96, 0.87, 0.7)
-        self.textures["river_tile"] = self.create_color_texture(0, 0.59, 1.0)
+            model_path = Filename.fromOsSpecific(raw_path).getFullpath()
+            try:
+                model = self.app.loader.loadModel(model_path)
+                model.setScale(0.4)
+                model.setHpr(180, 0, 0)
+                # **KHÔNG** reparent ở đây, chỉ giữ prototype
+                self.prototypes[piece_type] = model
+                print(f"[OK] Prototype loaded for {piece_type}")
+            except Exception as e:
+                print(f"[ERROR] Load prototype {name}: {e}")
 
     def create_color_texture(self, r, g, b):
         image = PNMImage(2, 2)
@@ -138,32 +188,87 @@ class OnlinePvPMatchScene(GameScene):
         texture.load(image)
         return texture
 
+    # def create_board(self):
+    #     state = self.game.get_state()
+    #     game_map = state.get_map()
+
+    #     for row in range(BOARD_ROWS):
+    #         for col in range(BOARD_COLS):
+    #             tile_pos = Position(col, row)
+
+    #             cm = CardMaker(f"tile_{col}_{row}")
+    #             cm.setFrame(0, 1, 0, 1)
+    #             tile_node = self.board_root.attachNewNode(cm.generate())
+    #             tile_node.setPos(col, 0, row)
+    #             tile_node.setP(-90)
+
+    #             # Add collision solid for mouse picking
+    #             cn = CollisionNode(f"tile_collision_{col}_{row}")
+    #             cm.setFrame(0, 1, 0, 1)
+    #             cn_np = tile_node.attachNewNode(cn)
+
+    #             self.tile_nodes[tile_pos] = tile_node
+
+    #             if self.is_river(tile_pos):
+    #                 tile_node.setTexture(self.textures["river_tile"])
+    #             else:
+    #                 tile_node.setTexture(self.textures["normal_tile"])
+
+    #             if self.is_trap(tile_pos):
+    #                 trap_overlay = self.board_root.attachNewNode(cm.generate())
+    #                 trap_overlay.setPos(col, 0.01, row)
+    #                 trap_overlay.setP(-90)
+    #                 trap_overlay.setTexture(self.textures["trap"])
+    #                 trap_overlay.setTransparency(TransparencyAttrib.MAlpha)
+
+    #             if self.is_cave(tile_pos):
+    #                 cave_overlay = self.board_root.attachNewNode(cm.generate())
+    #                 cave_overlay.setPos(col, 0.01, row)
+    #                 cave_overlay.setP(-90)
+    #                 cave_overlay.setTexture(self.textures["cave"])
+    #                 cave_overlay.setTransparency(TransparencyAttrib.MAlpha)
+
+    #     for y in range(game_map.height()):
+    #         for x in range(game_map.width()):
+    #             piece = state.get_piece_at_position(Position(x, y))
+    #             if piece:
+    #                 self.create_piece_node(piece)
     def create_board(self):
-        state = self.game.get_state()
+        state    = self.game.get_state()
         game_map = state.get_map()
+
+        # Chuẩn bị container lưu NodePath cho các ô
+        self.tile_nodes = {}
 
         for row in range(BOARD_ROWS):
             for col in range(BOARD_COLS):
                 tile_pos = Position(col, row)
 
+                # 1) Vẽ ô chính bằng CardMaker (frame 0→1)
                 cm = CardMaker(f"tile_{col}_{row}")
                 cm.setFrame(0, 1, 0, 1)
                 tile_node = self.board_root.attachNewNode(cm.generate())
                 tile_node.setPos(col, 0, row)
-                tile_node.setP(-90)
+                tile_node.setP(-90)    # rotate pitch -90°
 
-                # Add collision solid for mouse picking
+                # 2) Collision solid cho mouse‐picking
                 cn = CollisionNode(f"tile_collision_{col}_{row}")
+                # reuse cùng frame 0→1 để tạo solid
                 cm.setFrame(0, 1, 0, 1)
-                cn_np = tile_node.attachNewNode(cn)
+                cn.addSolid(cm.generate().getBounds())
+                cn.setIntoCollideMask(BitMask32.bit(1))
+                tile_node.attachNewNode(cn)
 
+                # Lưu lại để có thể update hoặc highlight về sau
                 self.tile_nodes[tile_pos] = tile_node
 
+                # 3) Gán texture river / normal
                 if self.is_river(tile_pos):
                     tile_node.setTexture(self.textures["river_tile"])
                 else:
                     tile_node.setTexture(self.textures["normal_tile"])
 
+                # 4) Overlay trap
                 if self.is_trap(tile_pos):
                     trap_overlay = self.board_root.attachNewNode(cm.generate())
                     trap_overlay.setPos(col, 0.01, row)
@@ -171,6 +276,7 @@ class OnlinePvPMatchScene(GameScene):
                     trap_overlay.setTexture(self.textures["trap"])
                     trap_overlay.setTransparency(TransparencyAttrib.MAlpha)
 
+                # 5) Overlay cave/den
                 if self.is_cave(tile_pos):
                     cave_overlay = self.board_root.attachNewNode(cm.generate())
                     cave_overlay.setPos(col, 0.01, row)
@@ -178,37 +284,74 @@ class OnlinePvPMatchScene(GameScene):
                     cave_overlay.setTexture(self.textures["cave"])
                     cave_overlay.setTransparency(TransparencyAttrib.MAlpha)
 
+        # 6) Sau khi dựng xong board, spawn quân từ game state
         for y in range(game_map.height()):
             for x in range(game_map.width()):
                 piece = state.get_piece_at_position(Position(x, y))
                 if piece:
                     self.create_piece_node(piece)
 
+
+    # def create_piece_node(self, piece: Piece):
+    #     state = self.game.get_state()
+    #     position = state.get_piece_position(piece)
+    #     if not position:
+    #         return
+
+    #     cm = CardMaker(f"piece_{piece}")
+    #     cm.setFrame(-0.45, 0.45, -0.45, 0.45)
+
+    #     piece_node = self.board_root.attachNewNode(cm.generate())
+    #     piece_node.setPos(position.x, 0.1, position.y)
+    #     piece_node.setP(-90)
+
+    #     # Add collision for piece
+    #     cn = CollisionNode(f"piece_collision_{piece}")
+    #     cm.setFrame(-0.45, 0.45, -0.45, 0.45)
+    #     cn_np = piece_node.attachNewNode(cn)
+
+    #     piece_node.setTexture(self.textures[piece.type])
+    #     piece_node.setTransparency(TransparencyAttrib.MAlpha)
+
+    #     border_color = (1, 0, 0, 1) if piece.color == Color.RED else (0, 0, 1, 1)
+    #     self.create_piece_border(piece_node, border_color)
+
+    #     self.piece_nodes[piece] = piece_node
     def create_piece_node(self, piece: Piece):
         state = self.game.get_state()
         position = state.get_piece_position(piece)
         if not position:
             return
 
+        # 1) Tạo ô vuông 2D cho quân bằng CardMaker
         cm = CardMaker(f"piece_{piece}")
         cm.setFrame(-0.45, 0.45, -0.45, 0.45)
-
         piece_node = self.board_root.attachNewNode(cm.generate())
+        # Đặt vị trí trên XZ-plane, nâng Y lên chút để tránh z-fighting với board
         piece_node.setPos(position.x, 0.1, position.y)
         piece_node.setP(-90)
 
-        # Add collision for piece
+        # 2) Thêm collision solid cho việc chọn/quẹt
         cn = CollisionNode(f"piece_collision_{piece}")
+        # dùng lại frame 0.9x0.9 (từ -0.45→0.45) để tạo solid
         cm.setFrame(-0.45, 0.45, -0.45, 0.45)
-        cn_np = piece_node.attachNewNode(cn)
+        cn.addSolid(cm.generate().getBounds())
+        cn.setIntoCollideMask(BitMask32.bit(1))
+        piece_node.attachNewNode(cn)
 
+        # 3) Gán texture và transparency
         piece_node.setTexture(self.textures[piece.type])
         piece_node.setTransparency(TransparencyAttrib.MAlpha)
 
+        # 4) Vẽ viền chỉ team (đỏ hoặc xanh)
         border_color = (1, 0, 0, 1) if piece.color == Color.RED else (0, 0, 1, 1)
         self.create_piece_border(piece_node, border_color)
 
+        # 5) Lưu lại để sau này dùng cho di chuyển hoặc xóa
         self.piece_nodes[piece] = piece_node
+
+        return piece_node
+
 
     def create_piece_border(self, piece_node: NodePath, color):
         cm = CardMaker("border")
@@ -411,38 +554,70 @@ class OnlinePvPMatchScene(GameScene):
         self.drag_piece_node = None
         self.dragging = False
 
+    # def update_board_state(self):
+    #     state = self.game.get_state()
+
+    #     for piece in state.get_all_pieces():
+    #         node = self.piece_nodes.get(piece)
+    #         position = state.get_piece_position(piece)
+    #         if node and position:
+    #             node.setPos(position.x, 0.1, position.y)
+
+    #     for piece_id in list(self.piece_nodes.keys()):
+    #         found = False
+    #         for piece in state.get_all_pieces():
+    #             if piece == piece_id:
+    #                 found = True
+    #                 break
+
+    #         if not found:
+    #             self.piece_nodes[piece_id].removeNode()
+    #             del self.piece_nodes[piece_id]
+
+    #     turn_color = (1, 0, 0, 1) if self.game.get_turn() == Color.RED else (0, 0, 1, 1)
+    #     turn_text = f"{self.game.get_turn().to_string().upper()}'S TURN"
+    #     self.turn_text.setText(turn_text)
+    #     self.turn_text.setFg(turn_color)
+        
+    #     # Update status text based on whose turn it is
+    #     if self.game.get_turn() != self.player_color and not self.game_over:
+    #         self.status_message = "Opponent's turn"
+    #     elif not self.game_over:
+    #         self.status_message = "Your turn"
+            
+    #     self.status_text.setText(self.status_message)
     def update_board_state(self):
         state = self.game.get_state()
 
+        # 1) Cập nhật vị trí của tất cả các quân còn tồn tại
         for piece in state.get_all_pieces():
             node = self.piece_nodes.get(piece)
             position = state.get_piece_position(piece)
             if node and position:
+                # đặt XZ-plane, nâng Y lên 0.1 để tránh z-fighting
                 node.setPos(position.x, 0.1, position.y)
 
+        # 2) Xóa đi các node đã bị ăn (không còn trong state)
         for piece_id in list(self.piece_nodes.keys()):
-            found = False
-            for piece in state.get_all_pieces():
-                if piece == piece_id:
-                    found = True
-                    break
-
-            if not found:
+            if piece_id not in state.get_all_pieces():
                 self.piece_nodes[piece_id].removeNode()
                 del self.piece_nodes[piece_id]
 
-        turn_color = (1, 0, 0, 1) if self.game.get_turn() == Color.RED else (0, 0, 1, 1)
-        turn_text = f"{self.game.get_turn().to_string().upper()}'S TURN"
+        # 3) Cập nhật text hiển thị lượt
+        turn = self.game.get_turn()
+        turn_color = (1, 0, 0, 1) if turn == Color.RED else (0, 0, 1, 1)
+        turn_text = f"{turn.to_string().upper()}'S TURN"
         self.turn_text.setText(turn_text)
         self.turn_text.setFg(turn_color)
-        
-        # Update status text based on whose turn it is
-        if self.game.get_turn() != self.player_color and not self.game_over:
-            self.status_message = "Opponent's turn"
-        elif not self.game_over:
-            self.status_message = "Your turn"
-            
-        self.status_text.setText(self.status_message)
+
+        # 4) Cập nhật status_message (Your turn / Opponent's turn)
+        if not self.game_over:
+            if turn != self.player_color:
+                self.status_message = "Opponent's turn"
+            else:
+                self.status_message = "Your turn"
+            self.status_text.setText(self.status_message)
+
 
     def update_game_over_display(self):
         if self.game_over:
