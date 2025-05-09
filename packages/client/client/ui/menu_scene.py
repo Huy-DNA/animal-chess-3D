@@ -1,7 +1,10 @@
+import os
 from dotenv import load_dotenv
 from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import TextNode, LVecBase4f
 
+from client.controller.network import ServerConnector
+from client.ui.matchmaking_scene import MatchmakingScene
 from ui.button import Button
 from ui.difficulty_menu_scene import DifficultyMenuScene
 from ui.offline_pvp_match_scene import OfflinePvPMatchScene
@@ -41,6 +44,7 @@ class MenuScene(GameScene):
         buttons_info = [
             "Computer vs Player",
             "Player vs Player",
+            "Online",
             "Quit",
         ]
 
@@ -55,6 +59,7 @@ class MenuScene(GameScene):
         self.buttons[0].set_click_callback(lambda pos: self.handle_button_click(0))
         self.buttons[1].set_click_callback(lambda pos: self.handle_button_click(1))
         self.buttons[2].set_click_callback(lambda pos: self.handle_button_click(2))
+        self.buttons[3].set_click_callback(lambda pos: self.handle_button_click(3))
 
     def handle_button_click(self, button_index: int):
         if button_index == 0:
@@ -62,6 +67,12 @@ class MenuScene(GameScene):
         elif button_index == 1:
             self.next_scene = OfflinePvPMatchScene(self.app)
         elif button_index == 2:
+            ip = os.getenv("SERVER_ADDRESS") or "0.0.0.0"
+            port = int(os.getenv("SERVER_PORT") or "8686")
+            connector = ServerConnector(ip=ip, port=port)
+            connector.Connect()
+            self.next_scene = MatchmakingScene(self.app, connector)
+        elif button_index == 3:
             self.app.userExit()
 
     def step(self, dt):
